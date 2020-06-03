@@ -1,5 +1,8 @@
 package org.checkerframework.dataflow.analysis;
 
+import com.github.javaparser.ast.ArrayCreationLevel;
+import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.expr.*;
 import com.sun.source.tree.ArrayAccessTree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.IdentifierTree;
@@ -24,20 +27,7 @@ import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.checkerframework.dataflow.cfg.node.ArrayAccessNode;
-import org.checkerframework.dataflow.cfg.node.ArrayCreationNode;
-import org.checkerframework.dataflow.cfg.node.ClassNameNode;
-import org.checkerframework.dataflow.cfg.node.ExplicitThisLiteralNode;
-import org.checkerframework.dataflow.cfg.node.FieldAccessNode;
-import org.checkerframework.dataflow.cfg.node.LocalVariableNode;
-import org.checkerframework.dataflow.cfg.node.MethodInvocationNode;
-import org.checkerframework.dataflow.cfg.node.NarrowingConversionNode;
-import org.checkerframework.dataflow.cfg.node.Node;
-import org.checkerframework.dataflow.cfg.node.StringConversionNode;
-import org.checkerframework.dataflow.cfg.node.SuperNode;
-import org.checkerframework.dataflow.cfg.node.ThisLiteralNode;
-import org.checkerframework.dataflow.cfg.node.ValueLiteralNode;
-import org.checkerframework.dataflow.cfg.node.WideningConversionNode;
+import org.checkerframework.dataflow.cfg.node.*;
 import org.checkerframework.dataflow.util.PurityUtils;
 import org.checkerframework.javacutil.AnnotationProvider;
 import org.checkerframework.javacutil.BugInCF;
@@ -190,6 +180,116 @@ public class FlowExpressions {
             receiver = new Unknown(receiverNode.getType());
         }
         return receiver;
+    }
+
+    /** @return internal representation of any {@link Node} as {@link Expression} */
+    public static Expression internalReprOfExpr(AnnotationProvider provider, Node receiverNode) {
+        return internalReprOfExpr(provider, receiverNode, false);
+    }
+
+    /** @return internal representation of any {@link Node} as {@link Expression} */
+    public static Expression internalReprOfExpr(
+            AnnotationProvider provider, Node receiverNode, boolean allowNonDeterministic) {
+        Expression expression = null;
+
+        if (receiverNode instanceof FieldAccessNode) {
+            FieldAccessNode node = (FieldAccessNode) receiverNode;
+
+            if (node.getFieldName().equals("this")) {
+                Name name = new Name(node.getReceiver().getType().toString());
+                expression = new ThisExpr(name);
+            } else if (node.getFieldName().equals("class")) {
+                expression = new NameExpr(node.getType().toString());
+            }
+        } else if (receiverNode instanceof ExplicitThisLiteralNode
+                || receiverNode instanceof ThisLiteralNode) {
+            expression = new ThisExpr(new Name(receiverNode.getType().toString()));
+        } else if (receiverNode instanceof SuperNode) {
+            expression = new SuperExpr(new Name(receiverNode.getType().toString()));
+        } else if (receiverNode instanceof LocalVariableNode) {
+            LocalVariableNode node = (LocalVariableNode) receiverNode;
+            expression = new NameExpr(node.getName());
+        } else if (receiverNode instanceof ArrayAccessNode) {
+            expression = new ArrayAccessExpr();
+        } else if (receiverNode instanceof StringConversionNode) {
+            expression =
+                    internalReprOfExpr(
+                            provider, ((StringConversionNode) receiverNode).getOperand());
+        } else if (receiverNode instanceof WideningConversionNode) {
+            expression =
+                    internalReprOfExpr(
+                            provider, ((WideningConversionNode) receiverNode).getOperand());
+        } else if (receiverNode instanceof NarrowingConversionNode) {
+            expression =
+                    internalReprOfExpr(
+                            provider, ((NarrowingConversionNode) receiverNode).getOperand());
+        } else if (receiverNode instanceof ValueLiteralNode) {
+            ValueLiteralNode node = (ValueLiteralNode) receiverNode;
+            LiteralTree tree = node.getTree();
+            // TODO: ValueLiteral represents all types of literals, whereas short is not available
+            // for LiteralExpr
+            if (node instanceof BooleanLiteralNode) {
+                expression = new BooleanLiteralExpr(((BooleanLiteralNode) node).getValue());
+            } else if (node instanceof NullLiteralNode) {
+                expression = new NullLiteralExpr();
+            } else if (node instanceof StringLiteralNode) {
+                expression = new StringLiteralExpr(((StringLiteralNode) node).getValue());
+            } else if (node instanceof IntegerLiteralNode) {
+                String intLiteralString = String.valueOf(((IntegerLiteralNode) node).getValue());
+                expression = new IntegerLiteralExpr(intLiteralString);
+            } else if (node instanceof LongLiteralNode) {
+                String longLiteralString = String.valueOf(((LongLiteralNode) node).getValue());
+                expression = new LongLiteralExpr(longLiteralString);
+            } else if (node instanceof CharacterLiteralNode) {
+                expression = new CharLiteralExpr(((CharacterLiteralNode) node).getValue());
+            } else if (node instanceof DoubleLiteralNode) {
+                expression = new DoubleLiteralExpr(((DoubleLiteralNode) node).getValue());
+            } else if (node instanceof FloatLiteralNode) {
+                expression = new DoubleLiteralExpr(((FloatLiteralNode) node).getValue());
+            }
+        } else if (receiverNode instanceof ArrayCreationNode) {
+            ArrayCreationNode node = (ArrayCreationNode) receiverNode;
+            NodeList<ArrayCreationLevel> levels = new NodeList<>();
+            NodeList<Expression> values = new NodeList<>();
+            String typeString = node.getType().toString();
+            for (Node dim : node.getDimensions()) {
+                Expression dimExpression = internalReprOfExpr(provider, dim, allowNonDeterministic);
+                levels.add(new ArrayCreationLevel(dimExpression));
+            }
+            for (Node initializer : node.getInitializers()) {
+                Expression initExpression =
+                        internalReprOfExpr(provider, initializer, allowNonDeterministic);
+                values.add(initExpression);
+            }
+            ArrayInitializerExpr arrayInitializerExpr = new ArrayInitializerExpr(values);
+            // expression = new ArrayCreationExpr(, levels, arrayInitializerExpr);
+            // TODO: get Type from TypeMirror
+            expression = new ArrayCreationExpr();
+        } else if (receiverNode instanceof MethodInvocationNode) {
+            MethodInvocationNode mn = (MethodInvocationNode) receiverNode;
+            MethodInvocationTree t = mn.getTree();
+            if (t == null) {
+                throw new BugInCF("internalReprOfExpr: Unexpected null tree for node: " + mn);
+            }
+            assert TreeUtils.isUseOfElement(t) : "@AssumeAssertion(nullness): tree kind";
+            ExecutableElement invokedMethod = TreeUtils.elementFromUse(t);
+
+            if (allowNonDeterministic || PurityUtils.isDeterministic(provider, invokedMethod)) {
+                Expression[] args = new Expression[mn.getArguments().size()];
+                int i = 0;
+                for (Node node : mn.getArguments()) {}
+
+                // TODO: get name of invoked method from mn
+                // String name = mn.getName();
+                expression = new MethodCallExpr("");
+            }
+        }
+
+        if (expression == null) {
+            // TODO: no UnknownExpr equivalent to Unknown
+            expression = null;
+        }
+        return expression;
     }
 
     /**
