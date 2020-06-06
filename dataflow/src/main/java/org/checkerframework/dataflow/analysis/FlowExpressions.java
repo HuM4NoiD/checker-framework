@@ -3,6 +3,7 @@ package org.checkerframework.dataflow.analysis;
 import com.github.javaparser.ast.ArrayCreationLevel;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.*;
+import com.sun.org.apache.bcel.internal.classfile.Unknown;
 import com.sun.source.tree.ArrayAccessTree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.IdentifierTree;
@@ -15,6 +16,7 @@ import com.sun.source.tree.UnaryTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.tools.javac.code.Symbol.VarSymbol;
+import com.sun.tools.javac.code.Type;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -77,12 +79,21 @@ public class FlowExpressions {
         return new ArrayAccess(node.getType(), receiver, index);
     }
 
+    /** @return internal representation (as {@link ArrayAccessExpr}) of {@link ArrayAccessNode} */
+    public static ArrayAccessExpr internalReprOfArrayAccessExpr(
+            AnnotationProvider provider, ArrayAccessNode node) {
+        // TODO: get the following expressions from node: name (given by getArray()), index (given
+        // by getIndex())
+        node.getArray();
+        node.getIndex();
+        return new ArrayAccessExpr();
+    }
     /**
      * We ignore operations such as widening and narrowing when computing the internal
      * representation.
      *
      * @return the internal representation (as {@link Receiver}) of any {@link Node}. Might contain
-     *     {@link Unknown}.
+     *     {@link Unknown}.dnf install @xfce-desktop-environment
      */
     public static Receiver internalReprOf(AnnotationProvider provider, Node receiverNode) {
         return internalReprOf(provider, receiverNode, false);
@@ -433,6 +444,116 @@ public class FlowExpressions {
         }
         return receiver;
     }
+
+    /**
+     * @param provider
+     * @param recieverTree
+     * @return internal representation of {@link ExpressionTree} as {@link Expression}
+     */
+    public static Expression internalReprOfExpr(
+            AnnotationProvider provider, ExpressionTree recieverTree) {
+        return internalReprOfExpr(provider, recieverTree, false);
+    }
+
+    /**
+     * @param provider
+     * @param recieverTree
+     * @return internal representation of {@link ExpressionTree} as {@link Expression}
+     */
+    public static Expression internalReprOfExpr(
+            AnnotationProvider provider,
+            ExpressionTree recieverTree,
+            boolean allowNonDeterministic) {
+        Expression expression;
+        switch (recieverTree.getKind()) {
+            case ARRAY_ACCESS:
+                {
+                    ArrayAccessTree tree = (ArrayAccessTree) recieverTree;
+                    Expression arrayAccessExpression =
+                            internalReprOfExpr(provider, tree.getExpression());
+                    Expression index = internalReprOfExpr(provider, tree.getIndex());
+                    expression = new ArrayAccessExpr(arrayAccessExpression, index);
+                    break;
+                }
+            case BOOLEAN_LITERAL:
+                {
+                    Boolean value = (Boolean) ((LiteralTree) recieverTree).getValue();
+                    expression = new BooleanLiteralExpr(value);
+                    break;
+                }
+            case CHAR_LITERAL:
+                {
+                    Character value = (Character) ((LiteralTree) recieverTree).getValue();
+                    expression = new CharLiteralExpr(value);
+                    break;
+                }
+            case INT_LITERAL:
+                {
+                    Integer value = (Integer) ((LiteralTree) recieverTree).getValue();
+                    expression = new IntegerLiteralExpr(String.valueOf(value));
+                    break;
+                }
+            case LONG_LITERAL:
+                {
+                    Long value = (Long) ((LiteralTree) recieverTree).getValue();
+                    expression = new LongLiteralExpr(String.valueOf(value));
+                    break;
+                }
+            case STRING_LITERAL:
+                {
+                    String value = ((LiteralTree) recieverTree).getValue().toString();
+                    expression = new StringLiteralExpr(value);
+                    break;
+                }
+            case NULL_LITERAL:
+                expression = new NullLiteralExpr();
+                break;
+            case FLOAT_LITERAL:
+            case DOUBLE_LITERAL:
+                {
+                    Double value = (Double) ((LiteralTree) recieverTree).getValue();
+                    expression = new DoubleLiteralExpr(value);
+                    break;
+                }
+            case NEW_ARRAY:
+                {
+                    NewArrayTree nwt = (NewArrayTree) recieverTree;
+                    NodeList<ArrayCreationLevel> levels = new NodeList<>();
+                    NodeList<Expression> values = new NodeList<>();
+
+                    if (nwt.getDimensions() != null) {
+                        for (ExpressionTree dim : nwt.getDimensions()) {
+                            Expression dimExpression =
+                                    internalReprOfExpr(provider, dim, allowNonDeterministic);
+                            levels.add(new ArrayCreationLevel(dimExpression));
+                        }
+                    }
+                    if (nwt.getInitializers() != null) {
+                        for (ExpressionTree initializer : nwt.getInitializers()) {
+                            Expression initExpression =
+                                    internalReprOfExpr(
+                                            provider, initializer, allowNonDeterministic);
+                            values.add(initExpression);
+                        }
+                    }
+                    ArrayInitializerExpr arrayInitializerExpr = new ArrayInitializerExpr(values);
+                    // expression = new ArrayCreationExpr(, levels, arrayInitializerExpr);
+                    // TODO: get Type from TypeMirror
+                    expression = new ArrayCreationExpr();
+                }
+            default:
+                expression = new NullLiteralExpr();
+        }
+        return expression;
+    }
+
+    /**
+     * Utility method to get
+     *
+     * @param typeMirror
+     * @return
+     */
+    public static Type getTypeFromTypeMirror(TypeMirror typeMirror) {}
 
     /**
      * Returns the implicit receiver of ele.
