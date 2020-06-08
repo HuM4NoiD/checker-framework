@@ -3,6 +3,8 @@ package org.checkerframework.dataflow.analysis;
 import com.github.javaparser.ast.ArrayCreationLevel;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.*;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.Type;
 import com.sun.org.apache.bcel.internal.classfile.Unknown;
 import com.sun.source.tree.ArrayAccessTree;
 import com.sun.source.tree.ExpressionTree;
@@ -16,7 +18,6 @@ import com.sun.source.tree.UnaryTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
 import com.sun.tools.javac.code.Symbol.VarSymbol;
-import com.sun.tools.javac.code.Type;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -26,8 +27,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
-import javax.lang.model.type.TypeKind;
-import javax.lang.model.type.TypeMirror;
+import javax.lang.model.type.*;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.dataflow.cfg.node.*;
 import org.checkerframework.dataflow.util.PurityUtils;
@@ -240,6 +240,9 @@ public class FlowExpressions {
             expression =
                     internalReprOfExpr(
                             provider, ((NarrowingConversionNode) receiverNode).getOperand());
+        } else if (receiverNode instanceof ClassNameNode) {
+            // TODO: Type from TypeMirror
+            expression = new ClassExpr();
         } else if (receiverNode instanceof ValueLiteralNode) {
             ValueLiteralNode node = (ValueLiteralNode) receiverNode;
             LiteralTree tree = node.getTree();
@@ -285,6 +288,7 @@ public class FlowExpressions {
         } else if (receiverNode instanceof MethodInvocationNode) {
             MethodInvocationNode mn = (MethodInvocationNode) receiverNode;
             MethodInvocationTree t = mn.getTree();
+            String name = mn.getTarget().getMethod().getSimpleName().toString();
             if (t == null) {
                 throw new BugInCF("internalReprOfExpr: Unexpected null tree for node: " + mn);
             }
@@ -294,11 +298,18 @@ public class FlowExpressions {
             if (allowNonDeterministic || PurityUtils.isDeterministic(provider, invokedMethod)) {
                 Expression[] args = new Expression[mn.getArguments().size()];
                 int i = 0;
-                for (Node node : mn.getArguments()) {}
-
-                // TODO: get name of invoked method from mn
-                // String name = mn.getName();
-                expression = new MethodCallExpr("");
+                for (Node node : mn.getArguments()) {
+                    args[i++] = internalReprOfExpr(provider, node);
+                }
+                Expression methodReceiver;
+                if (ElementUtils.isStatic(invokedMethod)) {
+                    // TODO: get Type from TypeMirror
+                    // TODO: is ClassExpr equivalent to ClassName?
+                    methodReceiver = new ClassName(mn.getTarget().getReceiver().getType());
+                } else {
+                    methodReceiver = internalReprOfExpr(provider, mn.getTarget().getReceiver());
+                }
+                expression = new MethodCallExpr(name, args);
             }
         }
 
@@ -466,18 +477,18 @@ public class FlowExpressions {
 
     /**
      * @param provider
-     * @param recieverTree
+     * @param receiverTree
      * @return internal representation of {@link ExpressionTree} as {@link Expression}
      */
     public static Expression internalReprOfExpr(
             AnnotationProvider provider,
-            ExpressionTree recieverTree,
+            ExpressionTree receiverTree,
             boolean allowNonDeterministic) {
-        Expression expression;
-        switch (recieverTree.getKind()) {
+        Expression expression = null;
+        switch (receiverTree.getKind()) {
             case ARRAY_ACCESS:
                 {
-                    ArrayAccessTree tree = (ArrayAccessTree) recieverTree;
+                    ArrayAccessTree tree = (ArrayAccessTree) receiverTree;
                     Expression arrayAccessExpression =
                             internalReprOfExpr(provider, tree.getExpression());
                     Expression index = internalReprOfExpr(provider, tree.getIndex());
@@ -486,31 +497,31 @@ public class FlowExpressions {
                 }
             case BOOLEAN_LITERAL:
                 {
-                    Boolean value = (Boolean) ((LiteralTree) recieverTree).getValue();
+                    Boolean value = (Boolean) ((LiteralTree) receiverTree).getValue();
                     expression = new BooleanLiteralExpr(value);
                     break;
                 }
             case CHAR_LITERAL:
                 {
-                    Character value = (Character) ((LiteralTree) recieverTree).getValue();
+                    Character value = (Character) ((LiteralTree) receiverTree).getValue();
                     expression = new CharLiteralExpr(value);
                     break;
                 }
             case INT_LITERAL:
                 {
-                    Integer value = (Integer) ((LiteralTree) recieverTree).getValue();
+                    Integer value = (Integer) ((LiteralTree) receiverTree).getValue();
                     expression = new IntegerLiteralExpr(String.valueOf(value));
                     break;
                 }
             case LONG_LITERAL:
                 {
-                    Long value = (Long) ((LiteralTree) recieverTree).getValue();
+                    Long value = (Long) ((LiteralTree) receiverTree).getValue();
                     expression = new LongLiteralExpr(String.valueOf(value));
                     break;
                 }
             case STRING_LITERAL:
                 {
-                    String value = ((LiteralTree) recieverTree).getValue().toString();
+                    String value = ((LiteralTree) receiverTree).getValue().toString();
                     expression = new StringLiteralExpr(value);
                     break;
                 }
@@ -520,13 +531,13 @@ public class FlowExpressions {
             case FLOAT_LITERAL:
             case DOUBLE_LITERAL:
                 {
-                    Double value = (Double) ((LiteralTree) recieverTree).getValue();
+                    Double value = (Double) ((LiteralTree) receiverTree).getValue();
                     expression = new DoubleLiteralExpr(value);
                     break;
                 }
             case NEW_ARRAY:
                 {
-                    NewArrayTree nwt = (NewArrayTree) recieverTree;
+                    NewArrayTree nwt = (NewArrayTree) receiverTree;
                     NodeList<ArrayCreationLevel> levels = new NodeList<>();
                     NodeList<Expression> values = new NodeList<>();
 
@@ -550,6 +561,54 @@ public class FlowExpressions {
                     // TODO: get Type from TypeMirror
                     expression = new ArrayCreationExpr();
                 }
+            case METHOD_INVOCATION:
+                {
+                    MethodInvocationTree mn = (MethodInvocationTree) receiverTree;
+                    assert TreeUtils.isUseOfElement(mn) : "@AssumeAssertion(nullness): tree kind";
+                    ExecutableElement invokedMethod = TreeUtils.elementFromUse(mn);
+                    if (PurityUtils.isDeterministic(provider, invokedMethod)
+                            || allowNonDeterministic) {
+                        List<Receiver> parameters = new ArrayList<>();
+                        for (ExpressionTree p : mn.getArguments()) {
+                            parameters.add(internalReprOf(provider, p));
+                        }
+                        Expression methodReceiver;
+
+                        if (ElementUtils.isStatic(invokedMethod)) {
+                            methodReceiver = new ClassExpr();
+                        } else {
+                            ExpressionTree methodReceiverTree = TreeUtils.getReceiverTree(mn);
+                            if (methodReceiverTree != null) {
+                                methodReceiver = internalReprOfExpr(provider, methodReceiverTree);
+                            } else {
+                                methodReceiver = internalReprOfImplicitReceiver(invokedMethod);
+                            }
+                        }
+                        TypeMirror type = TreeUtils.typeOf(mn);
+                        receiver = new MethodCall(type, invokedMethod, methodReceiver, parameters);
+                    }
+                }
+            case MEMBER_SELECT:
+                break;
+            case IDENTIFIER:
+                {
+                    IdentifierTree it = (IdentifierTree) receiverTree;
+                    TypeMirror idType = TreeUtils.typeOf(it);
+                    if (it.getName().contentEquals("this")) {
+                        expression = new ThisExpr(new Name(it.getName().toString()));
+                        break;
+                    }
+                    assert TreeUtils.isUseOfElement(it) : "@AssumeAssertion(nullness): tree kind";
+                    Element element = TreeUtils.elementFromTree(it);
+                    if (ElementUtils.isClassElement(element)) {
+                        // TODO: get Type from TypeMirror
+                        expression = new ClassExpr();
+                        break;
+                    }
+                    switch (element.getKind()) {
+                        case LOCAL_VARIABLE:
+                    }
+                }
             default:
                 expression = new NullLiteralExpr();
         }
@@ -557,12 +616,88 @@ public class FlowExpressions {
     }
 
     /**
-     * Utility method to get
+     * Utility method to get {@link Type} from {@link TypeMirror}
      *
      * @param typeMirror
-     * @return
+     * @return {@link Type} equivalent of {@link TypeMirror}
      */
-    public static Type getTypeFromTypeMirror(TypeMirror typeMirror) {}
+    public static Type getTypeFromTypeMirror(TypeMirror typeMirror) {
+        Type type = null;
+        if (typeMirror instanceof PrimitiveType) {
+            switch (((PrimitiveType) typeMirror).getKind()) {
+                case BOOLEAN:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.BOOLEAN);
+                    break;
+                case CHAR:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.CHAR);
+                    break;
+                case BYTE:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.BYTE);
+                    break;
+                case SHORT:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.SHORT);
+                    break;
+                case INT:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.INT);
+                    break;
+                case LONG:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.LONG);
+                    break;
+                case FLOAT:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.FLOAT);
+                    break;
+                case DOUBLE:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.DOUBLE);
+                    break;
+            }
+        } else if (typeMirror instanceof ReferenceType) {
+            if (typeMirror instanceof DeclaredType) {
+                DeclaredType dType = (DeclaredType) typeMirror;
+                List<? extends TypeMirror> paramTypeMirrors = dType.getTypeArguments();
+                String fqName = dType.asElement().toString();
+                if (paramTypeMirrors == null || paramTypeMirrors.size() == 0) {
+                    // This type does not include type parameters like MyClass<String, Integer>
+                    // TODO: get Outer ClassOrInterfaceType as scope
+                    type =
+                            new ClassOrInterfaceType(
+                                    /*Add Outer ClassOrInterfaceType here*/ null, fqName);
+                } else {
+                    NodeList<Type> typeArgs = new NodeList<>();
+                    for (int i = 0; i < paramTypeMirrors.size(); ++i) {
+                        TypeMirror param = paramTypeMirrors.get(i);
+                        Type paramType = getTypeFromTypeMirror(param);
+                        typeArgs.add(paramType);
+                    }
+                    int lastDotIndex = fqName.lastIndexOf('.');
+                    String className = fqName.substring(lastDotIndex + 1);
+                    SimpleName name = new SimpleName(className);
+                    // TODO: get Outer ClassOrInterfaceType as scope
+                    type =
+                            new ClassOrInterfaceType(
+                                    /*Add Outer ClassOrInterfaceType here*/ null, name, typeArgs);
+                }
+            } else if (typeMirror instanceof ArrayType) {
+                type = null;
+            }
+        }
+        return type;
+    }
 
     /**
      * Returns the implicit receiver of ele.
