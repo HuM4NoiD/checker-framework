@@ -6,16 +6,7 @@ import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
 import com.sun.org.apache.bcel.internal.classfile.Unknown;
-import com.sun.source.tree.ArrayAccessTree;
-import com.sun.source.tree.ExpressionTree;
-import com.sun.source.tree.IdentifierTree;
-import com.sun.source.tree.LiteralTree;
-import com.sun.source.tree.MemberSelectTree;
-import com.sun.source.tree.MethodInvocationTree;
-import com.sun.source.tree.MethodTree;
-import com.sun.source.tree.NewArrayTree;
-import com.sun.source.tree.UnaryTree;
-import com.sun.source.tree.VariableTree;
+import com.sun.source.tree.*;
 import com.sun.source.util.TreePath;
 import com.sun.tools.javac.code.Symbol.VarSymbol;
 import java.util.ArrayList;
@@ -225,6 +216,7 @@ public class FlowExpressions {
             expression = new SuperExpr(new Name(receiverNode.getType().toString()));
         } else if (receiverNode instanceof LocalVariableNode) {
             LocalVariableNode node = (LocalVariableNode) receiverNode;
+            // TODO: there is no Expression equivalent of LocalVariable
             expression = new NameExpr(node.getName());
         } else if (receiverNode instanceof ArrayAccessNode) {
             expression = new ArrayAccessExpr();
@@ -242,7 +234,7 @@ public class FlowExpressions {
                             provider, ((NarrowingConversionNode) receiverNode).getOperand());
         } else if (receiverNode instanceof ClassNameNode) {
             // TODO: Type from TypeMirror
-            expression = new ClassExpr();
+            expression = new ClassExpr(getTypeFromTypeMirror(receiverNode.getType()));
         } else if (receiverNode instanceof ValueLiteralNode) {
             ValueLiteralNode node = (ValueLiteralNode) receiverNode;
             LiteralTree tree = node.getTree();
@@ -282,9 +274,8 @@ public class FlowExpressions {
                 values.add(initExpression);
             }
             ArrayInitializerExpr arrayInitializerExpr = new ArrayInitializerExpr(values);
-            // expression = new ArrayCreationExpr(, levels, arrayInitializerExpr);
-            // TODO: get Type from TypeMirror
-            expression = new ArrayCreationExpr();
+            Type arrayType = getTypeFromTypeMirror(receiverNode.getType());
+            expression = new ArrayCreationExpr(arrayType, levels, arrayInitializerExpr);
         } else if (receiverNode instanceof MethodInvocationNode) {
             MethodInvocationNode mn = (MethodInvocationNode) receiverNode;
             MethodInvocationTree t = mn.getTree();
@@ -296,27 +287,24 @@ public class FlowExpressions {
             ExecutableElement invokedMethod = TreeUtils.elementFromUse(t);
 
             if (allowNonDeterministic || PurityUtils.isDeterministic(provider, invokedMethod)) {
-                Expression[] args = new Expression[mn.getArguments().size()];
+                NodeList<Expression> args = new NodeList<>();
                 int i = 0;
                 for (Node node : mn.getArguments()) {
-                    args[i++] = internalReprOfExpr(provider, node);
+                    args.add(internalReprOfExpr(provider, node));
                 }
                 Expression methodReceiver;
                 if (ElementUtils.isStatic(invokedMethod)) {
                     // TODO: get Type from TypeMirror
                     // TODO: is ClassExpr equivalent to ClassName?
-                    methodReceiver = new ClassName(mn.getTarget().getReceiver().getType());
+                    Type currentType = getTypeFromTypeMirror(receiverNode.getType());
+                    methodReceiver = new ClassExpr(currentType);
                 } else {
                     methodReceiver = internalReprOfExpr(provider, mn.getTarget().getReceiver());
                 }
-                expression = new MethodCallExpr(name, args);
+                expression = new MethodCallExpr(methodReceiver, name, args);
             }
         }
-
-        if (expression == null) {
-            // TODO: no UnknownExpr equivalent to Unknown
-            expression = null;
-        }
+        // expression will be null if not recognised
         return expression;
     }
 
@@ -557,9 +545,10 @@ public class FlowExpressions {
                         }
                     }
                     ArrayInitializerExpr arrayInitializerExpr = new ArrayInitializerExpr(values);
-                    // expression = new ArrayCreationExpr(, levels, arrayInitializerExpr);
+                    Type type = getTypeFromTypeMirror(TreeUtils.typeOf(receiverTree));
                     // TODO: get Type from TypeMirror
-                    expression = new ArrayCreationExpr();
+                    expression = new ArrayCreationExpr(type, levels, arrayInitializerExpr);
+                    break;
                 }
             case METHOD_INVOCATION:
                 {
@@ -568,27 +557,41 @@ public class FlowExpressions {
                     ExecutableElement invokedMethod = TreeUtils.elementFromUse(mn);
                     if (PurityUtils.isDeterministic(provider, invokedMethod)
                             || allowNonDeterministic) {
-                        List<Receiver> parameters = new ArrayList<>();
+                        NodeList<Expression> params = new NodeList<>();
                         for (ExpressionTree p : mn.getArguments()) {
-                            parameters.add(internalReprOf(provider, p));
+                            params.add(internalReprOfExpr(provider, p));
                         }
-                        Expression methodReceiver;
+                        Expression methodScope;
 
                         if (ElementUtils.isStatic(invokedMethod)) {
-                            methodReceiver = new ClassExpr();
+                            Type classNameType =
+                                    getTypeFromTypeMirror(TreeUtils.typeOf(mn.getMethodSelect()));
+                            methodScope = new ClassExpr(classNameType);
                         } else {
                             ExpressionTree methodReceiverTree = TreeUtils.getReceiverTree(mn);
                             if (methodReceiverTree != null) {
-                                methodReceiver = internalReprOfExpr(provider, methodReceiverTree);
+                                methodScope = internalReprOfExpr(provider, methodReceiverTree);
                             } else {
-                                methodReceiver = internalReprOfImplicitReceiver(invokedMethod);
+                                methodScope = internalReprOfImplicitReceiverExpr(invokedMethod);
                             }
                         }
-                        TypeMirror type = TreeUtils.typeOf(mn);
-                        receiver = new MethodCall(type, invokedMethod, methodReceiver, parameters);
+                        List<? extends Tree> typeArgs = mn.getTypeArguments();
+                        NodeList<Type> typeArgsNodeList = new NodeList<>();
+                        for (Tree tree : typeArgs) {
+                            Type type = getTypeFromTypeMirror(TreeUtils.typeOf(tree));
+                            typeArgsNodeList.add(type);
+                            TreeUtils.typeOf(tree);
+                        }
+                        // TODO: getMethodName from method MethodInvocationTree
+                        // expression = new MethodCallExpr(methodScope, typeArgsNodeList, , params);
+                        break;
+                    } else {
+                        expression = null;
                     }
                 }
             case MEMBER_SELECT:
+                expression =
+                        internalReprOfMemberSelectExpr(provider, (MemberSelectTree) receiverTree);
                 break;
             case IDENTIFIER:
                 {
@@ -602,16 +605,48 @@ public class FlowExpressions {
                     Element element = TreeUtils.elementFromTree(it);
                     if (ElementUtils.isClassElement(element)) {
                         // TODO: get Type from TypeMirror
-                        expression = new ClassExpr();
+                        expression = new ClassExpr(getTypeFromTypeMirror(element.asType()));
                         break;
                     }
                     switch (element.getKind()) {
                         case LOCAL_VARIABLE:
+                        case RESOURCE_VARIABLE:
+                        case EXCEPTION_PARAMETER:
+                        case PARAMETER:
+                            // TODO: no LocalVariableExpr exists equivalent to LocalVariable
+                            expression = new NameExpr(it.getName().toString());
+                            break;
+                        case FIELD:
+                            Expression fieldAccessScope;
+                            @SuppressWarnings(
+                                    "nullness:dereference.of.nullable") // a field has enclosing
+                            // class
+                            TypeMirror enclosingType =
+                                    ElementUtils.enclosingClass(element).asType();
+                            if (ElementUtils.isStatic(element)) {
+                                fieldAccessScope =
+                                        new ClassExpr(getTypeFromTypeMirror(enclosingType));
+                            } else {
+                                fieldAccessScope = new ThisExpr(new Name(enclosingType.toString()));
+                            }
+                            expression =
+                                    new FieldAccessExpr(fieldAccessScope, it.getName().toString());
+                            break;
+                        default:
+                            expression = null;
                     }
+                    break;
                 }
+            case UNARY_PLUS:
+                return internalReprOfExpr(
+                        provider,
+                        ((UnaryTree) receiverTree).getExpression(),
+                        allowNonDeterministic);
             default:
-                expression = new NullLiteralExpr();
+                expression = null;
         }
+
+        // TODO: Expression has no Unknown equivalent
         return expression;
     }
 
@@ -671,6 +706,8 @@ public class FlowExpressions {
                 DeclaredType dType = (DeclaredType) typeMirror;
                 List<? extends TypeMirror> paramTypeMirrors = dType.getTypeArguments();
                 String fqName = dType.asElement().toString();
+                int lastDotIndex = fqName.lastIndexOf('.');
+                String className = fqName.substring(lastDotIndex + 1);
                 if (paramTypeMirrors == null || paramTypeMirrors.size() == 0) {
                     // This type does not include type parameters like MyClass<String, Integer>
                     // TODO: get Outer ClassOrInterfaceType as scope
@@ -684,8 +721,6 @@ public class FlowExpressions {
                         Type paramType = getTypeFromTypeMirror(param);
                         typeArgs.add(paramType);
                     }
-                    int lastDotIndex = fqName.lastIndexOf('.');
-                    String className = fqName.substring(lastDotIndex + 1);
                     SimpleName name = new SimpleName(className);
                     // TODO: get Outer ClassOrInterfaceType as scope
                     type =
@@ -724,6 +759,26 @@ public class FlowExpressions {
     }
 
     /**
+     * returns {@link ClassExpr} or {@link ThisExpr} for the enclosing type
+     *
+     * @param element
+     * @return {@link ClassExpr} if static member of method or {@link ThisExpr}
+     */
+    public static Expression internalReprOfImplicitReceiverExpr(Element element) {
+        TypeElement enclosingClass = ElementUtils.enclosingClass(element);
+        if (enclosingClass == null) {
+            throw new BugInCF(
+                    "internalReprOfImplicitReceiver's arg has no enclosing class: " + element);
+        }
+        TypeMirror enclosingType = enclosingClass.asType();
+        if (ElementUtils.isStatic(element)) {
+            return new ClassExpr(getTypeFromTypeMirror(enclosingType));
+        } else {
+            return new ThisExpr(new Name(enclosingType.toString()));
+        }
+    }
+
+    /**
      * Returns either a new ClassName or ThisReference Receiver object for the enclosingType.
      *
      * <p>The Tree should be an expression or a statement that does not have a receiver or an
@@ -738,6 +793,20 @@ public class FlowExpressions {
             return new ClassName(enclosingType);
         } else {
             return new ThisReference(enclosingType);
+        }
+    }
+
+    /**
+     * returns {@link ClassExpr} or {@link ThisExpr} for the enclosing type
+     *
+     * @return {@link ClassExpr} if static member of method or {@link ThisExpr}
+     */
+    public static Expression internalReprOfPseudoReceiverExpr(
+            TreePath path, TypeMirror enclosingType) {
+        if (TreeUtils.isTreeInStaticScope(path)) {
+            return new ClassExpr(getTypeFromTypeMirror(enclosingType));
+        } else {
+            return new ThisExpr(new Name(enclosingType.toString()));
         }
     }
 
@@ -770,6 +839,44 @@ public class FlowExpressions {
     }
 
     /**
+     * To get the Receiver expression for a member/field Access
+     *
+     * @param provider
+     * @param memberSelectTree
+     * @return {@link Expression} that represents receiver of expression
+     */
+    public static Expression internalReprOfMemberSelectExpr(
+            AnnotationProvider provider, MemberSelectTree memberSelectTree) {
+        TypeMirror expressionType = TreeUtils.typeOf(memberSelectTree.getExpression());
+
+        if (TreeUtils.isClassLiteral(memberSelectTree)) {
+            return new ClassExpr(getTypeFromTypeMirror(expressionType));
+        }
+        assert TreeUtils.isUseOfElement(memberSelectTree) : "@AssumeAssertion(nullness): tree kind";
+        Element element = TreeUtils.elementFromUse(memberSelectTree);
+        if (ElementUtils.isClassElement(element)) {
+            // o instanceof MyClass.InnerClass
+            // o instanceof MyClass.InnerInterface
+            TypeMirror selectType = TreeUtils.typeOf(memberSelectTree);
+            return new ClassExpr(getTypeFromTypeMirror(selectType));
+        }
+        switch (element.getKind()) {
+            case METHOD:
+            case CONSTRUCTOR:
+                return internalReprOfExpr(provider, memberSelectTree.getExpression());
+            case ENUM_CONSTANT:
+            case FIELD:
+                TypeMirror fieldType = TreeUtils.typeOf(memberSelectTree);
+                Expression scope = internalReprOfExpr(provider, memberSelectTree.getExpression());
+                String memberName = memberSelectTree.getIdentifier().toString();
+                return new FieldAccessExpr(scope, memberName);
+            default:
+                throw new BugInCF(
+                        "Unexpected element kind: %s element: %s", element.getKind(), element);
+        }
+    }
+
+    /**
      * Returns Receiver objects for the formal parameters of the method in which path is enclosed.
      *
      * @param annotationProvider annotationProvider
@@ -790,6 +897,26 @@ public class FlowExpressions {
         return internalArguments;
     }
 
+    /**
+     * Returns the list of {@link Expression}s for the formal parameters of a method
+     *
+     * @param annotationProvider
+     * @param path TreePath enclosed by the method
+     * @return List of Expressions that represent formal parameters
+     */
+    public static List<Expression> getParamExprOfEnclosingMethod(
+            AnnotationProvider annotationProvider, TreePath path) {
+        MethodTree methodTree = TreeUtils.enclosingMethod(path);
+        if (methodTree == null) {
+            return null;
+        }
+        List<Expression> internalArguments = new ArrayList<>();
+        for (VariableTree arg : methodTree.getParameters()) {
+            internalArguments.add(
+                    internalReprOfExpr(annotationProvider, new LocalVariableNode(arg)));
+        }
+        return internalArguments;
+    }
     /**
      * The poorly-named Receiver class is actually a Java AST. Each subclass represents a different
      * type of expression, such as MethodCall, ArrayAccess, LocalVariable, etc.
