@@ -584,10 +584,10 @@ public class FlowExpressions {
                         }
                         // TODO: getMethodName from method MethodInvocationTree
                         // expression = new MethodCallExpr(methodScope, typeArgsNodeList, , params);
-                        break;
                     } else {
                         expression = null;
                     }
+                    break;
                 }
             case MEMBER_SELECT:
                 expression =
