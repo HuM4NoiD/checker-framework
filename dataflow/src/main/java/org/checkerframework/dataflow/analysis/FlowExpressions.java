@@ -1,9 +1,10 @@
 package org.checkerframework.dataflow.analysis;
 
+import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.ArrayCreationLevel;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.expr.*;
-import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.expr.Name;
 import com.github.javaparser.ast.type.Type;
 import com.sun.org.apache.bcel.internal.classfile.Unknown;
 import com.sun.source.tree.*;
@@ -13,11 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import javax.lang.model.element.Element;
-import javax.lang.model.element.ElementKind;
-import javax.lang.model.element.ExecutableElement;
-import javax.lang.model.element.TypeElement;
-import javax.lang.model.element.VariableElement;
+import javax.lang.model.element.*;
 import javax.lang.model.type.*;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.dataflow.cfg.node.*;
@@ -704,7 +701,8 @@ public class FlowExpressions {
         } else if (typeMirror instanceof ReferenceType) {
             if (typeMirror instanceof DeclaredType) {
                 DeclaredType dType = (DeclaredType) typeMirror;
-                List<? extends TypeMirror> paramTypeMirrors = dType.getTypeArguments();
+                type = getTypeExpr(dType).getType();
+                /*List<? extends TypeMirror> paramTypeMirrors = dType.getTypeArguments();
                 String fqName = dType.asElement().toString();
                 int lastDotIndex = fqName.lastIndexOf('.');
                 String className = fqName.substring(lastDotIndex + 1);
@@ -713,7 +711,9 @@ public class FlowExpressions {
                     // TODO: get Outer ClassOrInterfaceType as scope
                     type =
                             new ClassOrInterfaceType(
-                                    /*Add Outer ClassOrInterfaceType here*/ null, fqName);
+                                    */
+                /*Add Outer ClassOrInterfaceType here*/
+                /* null, fqName);
                 } else {
                     NodeList<Type> typeArgs = new NodeList<>();
                     for (int i = 0; i < paramTypeMirrors.size(); ++i) {
@@ -725,13 +725,38 @@ public class FlowExpressions {
                     // TODO: get Outer ClassOrInterfaceType as scope
                     type =
                             new ClassOrInterfaceType(
-                                    /*Add Outer ClassOrInterfaceType here*/ null, name, typeArgs);
-                }
+                                    */
+                /*Add Outer ClassOrInterfaceType here*/
+                /* null, name, typeArgs);
+                }*/
             } else if (typeMirror instanceof ArrayType) {
-                type = null;
+                ArrayType arrayTypeMirror = (ArrayType) typeMirror;
+                TypeMirror compTypeMirror = arrayTypeMirror.getComponentType();
+                Type compType = getTypeFromTypeMirror(compTypeMirror);
+                // TODO: get ArrayType.Origin i.e. int[] a or int a[] (Square braces occur beside
+                // type or beside variable)
+                List<? extends AnnotationMirror> annoMirrors =
+                        arrayTypeMirror.getAnnotationMirrors();
+                NodeList<AnnotationExpr> annotationExprs = new NodeList<>();
+                for (AnnotationMirror annoMirror : annoMirrors) {
+                    annotationExprs.add(getAnnotationExpr(annoMirror));
+                }
+                type =
+                        new com.github.javaparser.ast.type.ArrayType(
+                                compType,
+                                com.github.javaparser.ast.type.ArrayType.Origin.NAME,
+                                annotationExprs);
             }
         }
         return type;
+    }
+
+    private static AnnotationExpr getAnnotationExpr(AnnotationMirror mirror) {
+        return (AnnotationExpr) StaticJavaParser.parseExpression(mirror.toString());
+    }
+
+    private static TypeExpr getTypeExpr(DeclaredType type) {
+        return (TypeExpr) StaticJavaParser.parseExpression(type.toString());
     }
 
     /**
