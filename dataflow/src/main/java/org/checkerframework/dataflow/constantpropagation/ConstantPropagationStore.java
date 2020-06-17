@@ -1,5 +1,6 @@
 package org.checkerframework.dataflow.constantpropagation;
 
+import com.github.javaparser.ast.expr.Expression;
 import java.util.HashMap;
 import java.util.Map;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -152,6 +153,11 @@ public class ConstantPropagationStore implements Store<ConstantPropagationStore>
 
     @Override
     public boolean canAlias(FlowExpressions.Receiver a, FlowExpressions.Receiver b) {
+        return true;
+    }
+
+    @Override
+    public boolean canAlias(Expression a, Expression b) {
         return true;
     }
 

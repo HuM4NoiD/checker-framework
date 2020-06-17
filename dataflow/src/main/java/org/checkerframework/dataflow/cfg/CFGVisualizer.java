@@ -1,5 +1,9 @@
 package org.checkerframework.dataflow.cfg;
 
+import com.github.javaparser.ast.expr.ArrayAccessExpr;
+import com.github.javaparser.ast.expr.ClassExpr;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import java.util.Map;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.dataflow.analysis.AbstractValue;
@@ -96,6 +100,15 @@ public interface CFGVisualizer<
     String visualizeStoreFieldVals(FlowExpressions.FieldAccess fieldAccess, V value);
 
     /**
+     * To visualise the value of fields collected by this Store
+     *
+     * @param fieldAccessExpr field accessed
+     * @param value value of the field
+     * @return String representation of field
+     */
+    String visualizeStoreFieldVals(FieldAccessExpr fieldAccessExpr, V value);
+
+    /**
      * Called by {@code CFAbstractStore#internalVisualize()} to visualize the value of arrays
      * collected by this Store.
      *
@@ -104,6 +117,15 @@ public interface CFGVisualizer<
      * @return the String representation of the array
      */
     String visualizeStoreArrayVal(FlowExpressions.ArrayAccess arrayValue, V value);
+
+    /**
+     * To visualize the value of arrays collected by this store
+     *
+     * @param arrayAccessExpr array access expression
+     * @param value value of array
+     * @return String representation of array
+     */
+    String visualizeStoreArrayVal(ArrayAccessExpr arrayAccessExpr, V value);
 
     /**
      * Called by {@code CFAbstractStore#internalVisualize()} to visualize the value of pure method
@@ -116,6 +138,15 @@ public interface CFGVisualizer<
     String visualizeStoreMethodVals(FlowExpressions.MethodCall methodCall, V value);
 
     /**
+     * To visualize the value of class names collected by the store
+     *
+     * @param methodCall pure method call
+     * @param value value of the pure method call
+     * @return the String representation of the pure method call
+     */
+    String visualizeStoreMethodVals(MethodCallExpr methodCall, V value);
+
+    /**
      * Called by {@code CFAbstractStore#internalVisualize()} to visualize the value of class names
      * collected by this Store.
      *
@@ -124,6 +155,15 @@ public interface CFGVisualizer<
      * @return the String representation of the class name
      */
     String visualizeStoreClassVals(FlowExpressions.ClassName className, V value);
+
+    /**
+     * Visualise classnames collected by this store
+     *
+     * @param className the class name
+     * @param value the value of the class name
+     * @return String representation of class name
+     */
+    String visualizeStoreClassVals(ClassExpr className, V value);
 
     /**
      * Called by {@code CFAbstractStore#internalVisualize()} to visualize the specific information

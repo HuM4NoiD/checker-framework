@@ -1,5 +1,9 @@
 package org.checkerframework.dataflow.cfg;
 
+import com.github.javaparser.ast.expr.ArrayAccessExpr;
+import com.github.javaparser.ast.expr.ClassExpr;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -118,7 +122,17 @@ public class StringCFGVisualizer<
     }
 
     @Override
+    public String visualizeStoreFieldVals(FieldAccessExpr fieldAccess, V value) {
+        return storeEntryIndent + fieldAccess + " > " + value + lineSeparator;
+    }
+
+    @Override
     public String visualizeStoreArrayVal(FlowExpressions.ArrayAccess arrayValue, V value) {
+        return storeEntryIndent + arrayValue + " > " + value + lineSeparator;
+    }
+
+    @Override
+    public String visualizeStoreArrayVal(ArrayAccessExpr arrayValue, V value) {
         return storeEntryIndent + arrayValue + " > " + value + lineSeparator;
     }
 
@@ -128,7 +142,17 @@ public class StringCFGVisualizer<
     }
 
     @Override
+    public String visualizeStoreMethodVals(MethodCallExpr methodCall, V value) {
+        return storeEntryIndent + methodCall + " > " + value + lineSeparator;
+    }
+
+    @Override
     public String visualizeStoreClassVals(FlowExpressions.ClassName className, V value) {
+        return storeEntryIndent + className + " > " + value + lineSeparator;
+    }
+
+    @Override
+    public String visualizeStoreClassVals(ClassExpr className, V value) {
         return storeEntryIndent + className + " > " + value + lineSeparator;
     }
 

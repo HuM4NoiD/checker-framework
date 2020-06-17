@@ -1,5 +1,6 @@
 package org.checkerframework.dataflow.analysis;
 
+import com.github.javaparser.ast.expr.Expression;
 import org.checkerframework.dataflow.cfg.CFGVisualizer;
 
 /**
@@ -84,6 +85,14 @@ public interface Store<S extends Store<S>> {
      * returns {@code true} if not enough information is available to determine aliasing).
      */
     boolean canAlias(FlowExpressions.Receiver a, FlowExpressions.Receiver b);
+
+    /**
+     * Can objects {@code a} and {@code b} be aliases? returns a conservative answer , i.e. {@code
+     * true} if enough information is not available to determine aliasing;
+     *
+     * @return
+     */
+    boolean canAlias(Expression a, Expression b);
 
     /**
      * Delegate visualization responsibility to a visualizer.
