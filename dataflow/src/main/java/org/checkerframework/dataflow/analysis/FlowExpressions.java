@@ -750,10 +750,12 @@ public class FlowExpressions {
         return type;
     }
 
+    /** Assuming the string form of AnnotationMirror will be parsed to give AnnotationExpr */
     private static AnnotationExpr getAnnotationExpr(AnnotationMirror mirror) {
         return (AnnotationExpr) StaticJavaParser.parseExpression(mirror.toString());
     }
 
+    /** Assuming the string form of DeclaredType will give a TypeExpr */
     private static TypeExpr getTypeExpr(DeclaredType type) {
         return (TypeExpr) StaticJavaParser.parseExpression(type.toString());
     }
