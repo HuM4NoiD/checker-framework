@@ -1,5 +1,11 @@
 package org.checkerframework.framework.flow;
 
+import com.github.javaparser.ast.expr.ArrayAccessExpr;
+import com.github.javaparser.ast.expr.ClassExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -70,23 +76,27 @@ public abstract class CFAbstractStore<V extends CFAbstractValue<V>, S extends CF
      */
     protected Map<FlowExpressions.FieldAccess, V> fieldValues;
 
+    protected Map<FieldAccessExpr, V> fieldExprValues;
     /**
      * Information collected about arrays, using the internal representation {@link ArrayAccess}.
      */
     protected Map<FlowExpressions.ArrayAccess, V> arrayValues;
 
+    protected Map<ArrayAccessExpr, V> arrayExprValues;
     /**
      * Information collected about method calls, using the internal representation {@link
      * MethodCall}.
      */
     protected Map<FlowExpressions.MethodCall, V> methodValues;
 
+    protected Map<MethodCallExpr, V> methodCallValues;
     /**
      * Information collected about <i>classname</i>.class values, using the internal representation
      * {@link ClassName}.
      */
     protected Map<FlowExpressions.ClassName, V> classValues;
 
+    protected Map<ClassExpr, V> classExprValues;
     /**
      * Should the analysis use sequential Java semantics (i.e., assume that only one thread is
      * running at all times)?
@@ -105,6 +115,10 @@ public abstract class CFAbstractStore<V extends CFAbstractValue<V>, S extends CF
         methodValues = new HashMap<>();
         arrayValues = new HashMap<>();
         classValues = new HashMap<>();
+        fieldExprValues = new HashMap<>();
+        methodCallValues = new HashMap<>();
+        arrayExprValues = new HashMap<>();
+        classExprValues = new HashMap<>();
         this.sequentialSemantics = sequentialSemantics;
     }
 
@@ -117,6 +131,10 @@ public abstract class CFAbstractStore<V extends CFAbstractValue<V>, S extends CF
         methodValues = new HashMap<>(other.methodValues);
         arrayValues = new HashMap<>(other.arrayValues);
         classValues = new HashMap<>(other.classValues);
+        fieldExprValues = new HashMap<>(other.fieldExprValues);
+        methodCallValues = new HashMap<>(other.methodCallValues);
+        arrayExprValues = new HashMap<>(other.arrayExprValues);
+        classExprValues = new HashMap<>(other.classExprValues);
         sequentialSemantics = other.sequentialSemantics;
     }
 
@@ -245,6 +263,55 @@ public abstract class CFAbstractStore<V extends CFAbstractValue<V>, S extends CF
         // store information about method call if possible
         Receiver methodCall = FlowExpressions.internalReprOf(analysis.getTypeFactory(), n);
         replaceValue(methodCall, val);
+    }
+
+    public void updateForMethodCallExpr(
+            MethodInvocationNode n, AnnotatedTypeFactory aTypeFactory, V val) {
+        ExecutableElement method = n.getTarget().getMethod();
+        if (!(analysis.checker.hasOption("assumeSideEffectFree")
+                || analysis.checker.hasOption("assumePure")
+                || isSideEffectFree(aTypeFactory, method))) {
+
+            Map<FieldAccessExpr, V> newFieldValues = new HashMap<>();
+            for (Map.Entry<FieldAccessExpr, V> entry : fieldExprValues.entrySet()) {
+                FieldAccessExpr fieldAccessExpr = entry.getKey();
+                V otherVal = entry.getValue();
+
+                if (!((GenericAnnotatedTypeFactory<?, ?, ?, ?>) aTypeFactory)
+                        .getSupportedMonotonicTypeQualifiers()
+                        .isEmpty()) {
+                    // TODO: obtain VariableElement ( getField() ) from SimpleName
+                    List<Pair<AnnotationMirror, AnnotationMirror>> fieldAnnotations =
+                            new ArrayList<>();
+                    //                            aTypeFactory.getAnnotationWithMetaAnnotation(
+                    //                                    fieldAccessExpr.getName().toString(),
+                    // MonotonicQualifier.class);
+                    V newOtherValue = null;
+                    for (Pair<AnnotationMirror, AnnotationMirror> fieldAnnotation :
+                            fieldAnnotations) {
+                        AnnotationMirror monotonicAnnotation = fieldAnnotation.second;
+                        Name annotation =
+                                AnnotationUtils.getElementValueClassName(
+                                        monotonicAnnotation, "value", false);
+                        AnnotationMirror target =
+                                AnnotationBuilder.fromName(
+                                        aTypeFactory.getElementUtils(), annotation);
+
+                        if (AnnotationUtils.containsSame(otherVal.getAnnotations(), target)) {
+                            newOtherValue =
+                                    analysis.createSingleAnnotationValue(
+                                                    target, otherVal.getUnderlyingType())
+                                            .mostSpecific(newOtherValue, null);
+                        }
+                    }
+                    if (newOtherValue != null) {
+                        newFieldValues.put(fieldAccessExpr, newOtherValue);
+                        continue;
+                    }
+                }
+                // if (fieldAccessExpr != null) {}
+            }
+        }
     }
 
     /**
@@ -808,6 +875,13 @@ public abstract class CFAbstractStore<V extends CFAbstractValue<V>, S extends CF
         TypeMirror ta = a.getType();
         Types types = analysis.getTypes();
         return types.isSubtype(ta, tb) || types.isSubtype(tb, ta);
+    }
+
+    @Override
+    public boolean canAlias(Expression a, Expression b) {
+        //        TypeSolver typeSolver = new CombinedTypeSolver();
+        //        JavaSymbolSolver symbolSolver = new JavaSymbolSolver(typeSolver);
+        return true;
     }
 
     /* --------------------------------------------------------- */
