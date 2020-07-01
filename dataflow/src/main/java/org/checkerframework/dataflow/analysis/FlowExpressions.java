@@ -2115,4 +2115,6 @@ public class FlowExpressions {
             return sb.toString();
         }
     }
+
+    public static class LocalVariableExpr extends NameExpr {}
 }
