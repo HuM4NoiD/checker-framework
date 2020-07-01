@@ -3,6 +3,7 @@ package org.checkerframework.dataflow.analysis;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.ArrayCreationLevel;
 import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.ArrayAccessExpr;
 import com.github.javaparser.ast.expr.ArrayCreationExpr;
@@ -19,6 +20,7 @@ import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.Name;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.NullLiteralExpr;
+import com.github.javaparser.ast.expr.SimpleName;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.expr.SuperExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
@@ -32,8 +34,8 @@ import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewArrayTree;
-import com.sun.source.tree.Tree.Kind;
 import com.sun.source.tree.Tree;
+import com.sun.source.tree.Tree.Kind;
 import com.sun.source.tree.UnaryTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
@@ -48,6 +50,7 @@ import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.ArrayType;
@@ -829,6 +832,9 @@ public class FlowExpressions {
         return (TypeExpr) StaticJavaParser.parseExpression(type.toString());
     }
 
+    private static TypeExpr getTypeExpr(TypeMirror typeMirror) {
+        return (TypeExpr) StaticJavaParser.parseExpression(typeMirror.toString());
+    }
     /**
      * Returns the implicit receiver of ele.
      *
@@ -1012,6 +1018,72 @@ public class FlowExpressions {
         }
         return internalArguments;
     }
+
+    public static List<Parameter> getParamsOfEnclosingMethod(TreePath path) {
+        MethodTree methodTree = TreeUtils.enclosingMethod(path);
+        if (methodTree == null) {
+            return null;
+        }
+        List<Parameter> formalArgs = new ArrayList<>();
+        for (VariableTree arg : methodTree.getParameters()) {
+            LocalVariableNode node = new LocalVariableNode(arg);
+            NodeList<com.github.javaparser.ast.Modifier> paramMods = new NodeList<>();
+            for (Modifier modifier : methodTree.getModifiers().getFlags()) {
+                paramMods.add(getModifier(modifier));
+            }
+            Parameter parameter =
+                    new Parameter(
+                            paramMods,
+                            getTypeFromTypeMirror(node.getType()),
+                            new SimpleName(arg.getName().toString()));
+            formalArgs.add(parameter);
+        }
+        return formalArgs;
+    }
+
+    private static com.github.javaparser.ast.Modifier getModifier(Modifier modifier) {
+        switch (modifier) {
+            case PUBLIC:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.PUBLIC);
+            case PROTECTED:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.PROTECTED);
+            case PRIVATE:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.PRIVATE);
+            case ABSTRACT:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.ABSTRACT);
+            case DEFAULT:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.DEFAULT);
+            case STATIC:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.STATIC);
+            case FINAL:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.FINAL);
+            case TRANSIENT:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.TRANSIENT);
+            case VOLATILE:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.VOLATILE);
+            case SYNCHRONIZED:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.SYNCHRONIZED);
+            case NATIVE:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.NATIVE);
+            case STRICTFP:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.STRICTFP);
+            default:
+                throw new IllegalStateException("Unknown Modifier found");
+        }
+    }
+
     /**
      * The poorly-named Receiver class is actually a Java AST. Each subclass represents a different
      * type of expression, such as MethodCall, ArrayAccess, LocalVariable, etc.

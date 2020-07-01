@@ -1,5 +1,9 @@
 package org.checkerframework.framework.util.dependenttypes;
 
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.expr.ArrayCreationExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.sun.source.tree.AnnotationTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.ExpressionTree;
@@ -142,7 +146,15 @@ public class DependentTypesHelper {
     public void viewpointAdaptTypeVariableBounds(
             TypeElement classDecl, List<AnnotatedTypeParameterBounds> bounds, TreePath pathToUse) {
         FlowExpressions.Receiver r = FlowExpressions.internalReprOfImplicitReceiver(classDecl);
-        FlowExpressionContext context = new FlowExpressionContext(r, null, factory.getContext());
+        Expression receiverExpr = FlowExpressions.internalReprOfImplicitReceiverExpr(classDecl);
+        FlowExpressionContext context =
+                new FlowExpressionContext(
+                        r,
+                        null,
+                        factory.getContext(),
+                        receiverExpr,
+                        new ArrayList<>(),
+                        new ArrayList<>());
         for (AnnotatedTypeParameterBounds bound : bounds) {
             standardizeDoNotUseLocals(context, pathToUse, bound.getUpperBound());
             standardizeDoNotUseLocals(context, pathToUse, bound.getLowerBound());
@@ -191,12 +203,20 @@ public class DependentTypesHelper {
         }
 
         FlowExpressions.Receiver receiver;
+        Expression receiverExpr;
         if (receiverTree == null) {
             receiver =
                     FlowExpressions.internalReprOfImplicitReceiver(TreeUtils.elementFromUse(tree));
+            receiverExpr =
+                    FlowExpressions.internalReprOfImplicitReceiverExpr(
+                            TreeUtils.elementFromUse(tree));
         } else {
             receiver = FlowExpressions.internalReprOf(factory, receiverTree);
+            receiverExpr = FlowExpressions.internalReprOfExpr(factory, receiverTree);
         }
+
+        List<Parameter> formalArgs = new ArrayList<>();
+        List<Expression> actualArgs = new ArrayList<>();
 
         List<Receiver> argReceivers = new ArrayList<>();
         boolean isVarargs = false;
@@ -206,29 +226,39 @@ public class DependentTypesHelper {
                 isVarargs = true;
                 for (int i = 0; i < methodCalled.getParameters().size() - 1; i++) {
                     argReceivers.add(FlowExpressions.internalReprOf(factory, args.get(i)));
+                    actualArgs.add(FlowExpressions.internalReprOfExpr(factory, args.get(i)));
                 }
                 List<Receiver> varargArgs = new ArrayList<>();
                 for (int i = methodCalled.getParameters().size() - 1; i < args.size(); i++) {
                     varargArgs.add(FlowExpressions.internalReprOf(factory, args.get(i)));
+                    actualArgs.add(FlowExpressions.internalReprOfExpr(factory, args.get(i)));
                 }
                 Element varargsElement =
                         methodCalled.getParameters().get(methodCalled.getParameters().size() - 1);
                 TypeMirror tm = ElementUtils.getType(varargsElement);
                 argReceivers.add(
                         new FlowExpressions.ArrayCreation(tm, Collections.emptyList(), varargArgs));
+                actualArgs.add(new ArrayCreationExpr());
             }
         }
 
         if (!isVarargs) {
             for (ExpressionTree argTree : args) {
                 argReceivers.add(FlowExpressions.internalReprOf(factory, argTree));
+                actualArgs.add(FlowExpressions.internalReprOfExpr(factory, argTree));
             }
         }
 
         TreePath currentPath = factory.getPath(tree);
 
         FlowExpressionContext context =
-                new FlowExpressionContext(receiver, argReceivers, factory.getContext());
+                new FlowExpressionContext(
+                        receiver,
+                        argReceivers,
+                        factory.getContext(),
+                        receiverExpr,
+                        formalArgs,
+                        actualArgs);
 
         // typeForUse cannot be viewpoint adapted directly because it is the type post type variable
         // substitution.  Dependent type annotations on type arguments do not (and cannot) be
@@ -293,11 +323,16 @@ public class DependentTypesHelper {
         TypeMirror enclosingType = TreeUtils.typeOf(enclosingClass);
         FlowExpressions.Receiver r =
                 FlowExpressions.internalReprOfPseudoReceiver(path, enclosingType);
+        Expression recieverExpr =
+                FlowExpressions.internalReprOfPseudoReceiverExpr(path, enclosingType);
         FlowExpressionContext context =
                 new FlowExpressionContext(
                         r,
                         FlowExpressions.getParametersOfEnclosingMethod(factory, path),
-                        factory.getContext());
+                        factory.getContext(),
+                        recieverExpr,
+                        FlowExpressions.getParamsOfEnclosingMethod(path),
+                        new ArrayList<>());
         standardizeUseLocals(context, path, type);
     }
 
@@ -340,8 +375,15 @@ public class DependentTypesHelper {
             return;
         }
         FlowExpressions.Receiver receiverF = FlowExpressions.internalReprOfImplicitReceiver(ele);
+        Expression expression = FlowExpressions.internalReprOfImplicitReceiverExpr(ele);
         FlowExpressionContext classContext =
-                new FlowExpressionContext(receiverF, null, factory.getContext());
+                new FlowExpressionContext(
+                        receiverF,
+                        null,
+                        factory.getContext(),
+                        expression,
+                        new ArrayList<>(),
+                        new ArrayList<>());
         standardizeDoNotUseLocals(classContext, path, type);
     }
 
@@ -395,27 +437,48 @@ public class DependentTypesHelper {
                 TypeMirror enclosingType = ElementUtils.enclosingClass(ele).asType();
                 FlowExpressions.Receiver receiver =
                         FlowExpressions.internalReprOfPseudoReceiver(path, enclosingType);
+                Expression receiverExpr =
+                        FlowExpressions.internalReprOfPseudoReceiverExpr(path, enclosingType);
                 List<Receiver> params =
                         FlowExpressions.getParametersOfEnclosingMethod(factory, path);
+                List<Parameter> parameters = FlowExpressions.getParamsOfEnclosingMethod(path);
                 FlowExpressionContext localContext =
-                        new FlowExpressionContext(receiver, params, factory.getContext());
+                        new FlowExpressionContext(
+                                receiver,
+                                params,
+                                factory.getContext(),
+                                receiverExpr,
+                                parameters,
+                                new ArrayList<>());
                 standardizeUseLocals(localContext, path, type);
                 break;
             case FIELD:
             case ENUM_CONSTANT:
                 FlowExpressions.Receiver receiverF;
+                Expression expression;
                 if (node.getKind() == Tree.Kind.IDENTIFIER) {
                     FlowExpressions.Receiver r =
                             FlowExpressions.internalReprOf(factory, (IdentifierTree) node);
+                    Expression e =
+                            FlowExpressions.internalReprOfExpr(factory, (IdentifierTree) node);
                     receiverF =
                             r instanceof FlowExpressions.FieldAccess
                                     ? ((FlowExpressions.FieldAccess) r).getReceiver()
                                     : r;
+                    expression =
+                            e instanceof FieldAccessExpr ? ((FieldAccessExpr) e).getScope() : e;
                 } else {
                     receiverF = FlowExpressions.internalReprOfImplicitReceiver(ele);
+                    expression = FlowExpressions.internalReprOfImplicitReceiverExpr(ele);
                 }
                 FlowExpressionContext fieldContext =
-                        new FlowExpressionContext(receiverF, null, factory.getContext());
+                        new FlowExpressionContext(
+                                receiverF,
+                                null,
+                                factory.getContext(),
+                                expression,
+                                new ArrayList<Parameter>(),
+                                new ArrayList<Expression>());
                 standardizeDoNotUseLocals(fieldContext, path, type);
                 break;
             default:
@@ -444,8 +507,15 @@ public class DependentTypesHelper {
 
         FlowExpressions.Receiver receiver =
                 FlowExpressions.internalReprOf(factory, node.getExpression());
+        Expression expression = FlowExpressions.internalReprOfExpr(factory, node.getExpression());
         FlowExpressionContext context =
-                new FlowExpressionContext(receiver, null, factory.getContext());
+                new FlowExpressionContext(
+                        receiver,
+                        null,
+                        factory.getContext(),
+                        expression,
+                        new ArrayList<Parameter>(),
+                        new ArrayList<Expression>());
         standardizeDoNotUseLocals(context, factory.getPath(node), type);
     }
 
@@ -465,12 +535,17 @@ public class DependentTypesHelper {
 
         FlowExpressions.Receiver receiver =
                 FlowExpressions.internalReprOfPseudoReceiver(path, enclosingType);
+        Expression expression =
+                FlowExpressions.internalReprOfPseudoReceiverExpr(path, enclosingType);
 
         FlowExpressionContext localContext =
                 new FlowExpressionContext(
                         receiver,
                         FlowExpressions.getParametersOfEnclosingMethod(factory, path),
-                        factory.getContext());
+                        factory.getContext(),
+                        expression,
+                        FlowExpressions.getParamsOfEnclosingMethod(path),
+                        new ArrayList<Expression>());
         standardizeUseLocals(localContext, path, annotatedType);
     }
 
