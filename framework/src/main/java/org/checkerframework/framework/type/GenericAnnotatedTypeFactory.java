@@ -1,5 +1,7 @@
 package org.checkerframework.framework.type;
 
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.expr.Expression;
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
@@ -748,11 +750,16 @@ public abstract class GenericAnnotatedTypeFactory<
         TypeMirror enclosingClass = TreeUtils.typeOf(TreeUtils.enclosingClass(currentPath));
 
         Receiver r = FlowExpressions.internalReprOfPseudoReceiver(currentPath, enclosingClass);
+        Expression expr =
+                FlowExpressions.internalReprOfPseudoReceiverExpr(currentPath, enclosingClass);
         FlowExpressionParseUtil.FlowExpressionContext context =
                 new FlowExpressionParseUtil.FlowExpressionContext(
                         r,
                         FlowExpressions.getParametersOfEnclosingMethod(this, currentPath),
-                        this.getContext());
+                        this.getContext(),
+                        expr,
+                        new ArrayList<Parameter>(),
+                        new ArrayList<Expression>());
 
         return FlowExpressionParseUtil.parse(expression, context, currentPath, true);
     }
