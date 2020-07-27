@@ -1,5 +1,31 @@
 package org.checkerframework.dataflow.analysis;
 
+import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.ast.ArrayCreationLevel;
+import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.Parameter;
+import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.ArrayAccessExpr;
+import com.github.javaparser.ast.expr.ArrayCreationExpr;
+import com.github.javaparser.ast.expr.ArrayInitializerExpr;
+import com.github.javaparser.ast.expr.BooleanLiteralExpr;
+import com.github.javaparser.ast.expr.CharLiteralExpr;
+import com.github.javaparser.ast.expr.ClassExpr;
+import com.github.javaparser.ast.expr.DoubleLiteralExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.IntegerLiteralExpr;
+import com.github.javaparser.ast.expr.LongLiteralExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.Name;
+import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.NullLiteralExpr;
+import com.github.javaparser.ast.expr.SimpleName;
+import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.expr.SuperExpr;
+import com.github.javaparser.ast.expr.ThisExpr;
+import com.github.javaparser.ast.expr.TypeExpr;
+import com.github.javaparser.ast.type.Type;
 import com.sun.source.tree.ArrayAccessTree;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.IdentifierTree;
@@ -8,6 +34,7 @@ import com.sun.source.tree.MemberSelectTree;
 import com.sun.source.tree.MethodInvocationTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.NewArrayTree;
+import com.sun.source.tree.Tree;
 import com.sun.source.tree.Tree.Kind;
 import com.sun.source.tree.UnaryTree;
 import com.sun.source.tree.VariableTree;
@@ -19,25 +46,39 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.ArrayType;
+import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.PrimitiveType;
+import javax.lang.model.type.ReferenceType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.dataflow.cfg.node.ArrayAccessNode;
 import org.checkerframework.dataflow.cfg.node.ArrayCreationNode;
 import org.checkerframework.dataflow.cfg.node.BinaryOperationNode;
+import org.checkerframework.dataflow.cfg.node.BooleanLiteralNode;
+import org.checkerframework.dataflow.cfg.node.CharacterLiteralNode;
 import org.checkerframework.dataflow.cfg.node.ClassNameNode;
+import org.checkerframework.dataflow.cfg.node.DoubleLiteralNode;
 import org.checkerframework.dataflow.cfg.node.ExplicitThisLiteralNode;
 import org.checkerframework.dataflow.cfg.node.FieldAccessNode;
+import org.checkerframework.dataflow.cfg.node.FloatLiteralNode;
+import org.checkerframework.dataflow.cfg.node.IntegerLiteralNode;
 import org.checkerframework.dataflow.cfg.node.LocalVariableNode;
+import org.checkerframework.dataflow.cfg.node.LongLiteralNode;
 import org.checkerframework.dataflow.cfg.node.MethodInvocationNode;
 import org.checkerframework.dataflow.cfg.node.NarrowingConversionNode;
 import org.checkerframework.dataflow.cfg.node.Node;
+import org.checkerframework.dataflow.cfg.node.NullLiteralNode;
 import org.checkerframework.dataflow.cfg.node.StringConversionNode;
+import org.checkerframework.dataflow.cfg.node.StringLiteralNode;
 import org.checkerframework.dataflow.cfg.node.SuperNode;
 import org.checkerframework.dataflow.cfg.node.ThisLiteralNode;
 import org.checkerframework.dataflow.cfg.node.ValueLiteralNode;
@@ -97,6 +138,15 @@ public class FlowExpressions {
         return new ArrayAccess(node.getType(), receiver, index);
     }
 
+    /** @return internal representation (as {@link ArrayAccessExpr}) of {@link ArrayAccessNode} */
+    public static ArrayAccessExpr internalReprOfArrayAccessExpr(
+            AnnotationProvider provider, ArrayAccessNode node) {
+        // TODO: get the following expressions from node: name (given by getArray()), index (given
+        // by getIndex())
+        node.getArray();
+        node.getIndex();
+        return new ArrayAccessExpr();
+    }
     /**
      * We ignore operations such as widening and narrowing when computing the internal
      * representation.
@@ -206,6 +256,124 @@ public class FlowExpressions {
             receiver = new Unknown(receiverNode.getType());
         }
         return receiver;
+    }
+
+    /** @return internal representation of any {@link Node} as {@link Expression} */
+    public static Expression internalReprOfExpr(AnnotationProvider provider, Node receiverNode) {
+        return internalReprOfExpr(provider, receiverNode, false);
+    }
+
+    /** @return internal representation of any {@link Node} as {@link Expression} */
+    public static Expression internalReprOfExpr(
+            AnnotationProvider provider, Node receiverNode, boolean allowNonDeterministic) {
+        Expression expression = null;
+
+        if (receiverNode instanceof FieldAccessNode) {
+            FieldAccessNode node = (FieldAccessNode) receiverNode;
+
+            if (node.getFieldName().equals("this")) {
+                Name name = new Name(node.getReceiver().getType().toString());
+                expression = new ThisExpr(name);
+            } else if (node.getFieldName().equals("class")) {
+                expression = new NameExpr(node.getType().toString());
+            }
+        } else if (receiverNode instanceof ExplicitThisLiteralNode
+                || receiverNode instanceof ThisLiteralNode) {
+            expression = new ThisExpr(new Name(receiverNode.getType().toString()));
+        } else if (receiverNode instanceof SuperNode) {
+            expression = new SuperExpr(new Name(receiverNode.getType().toString()));
+        } else if (receiverNode instanceof LocalVariableNode) {
+            LocalVariableNode node = (LocalVariableNode) receiverNode;
+            // TODO: there is no Expression equivalent of LocalVariable
+            expression = new NameExpr(node.getName());
+        } else if (receiverNode instanceof ArrayAccessNode) {
+            expression = new ArrayAccessExpr();
+        } else if (receiverNode instanceof StringConversionNode) {
+            expression =
+                    internalReprOfExpr(
+                            provider, ((StringConversionNode) receiverNode).getOperand());
+        } else if (receiverNode instanceof WideningConversionNode) {
+            expression =
+                    internalReprOfExpr(
+                            provider, ((WideningConversionNode) receiverNode).getOperand());
+        } else if (receiverNode instanceof NarrowingConversionNode) {
+            expression =
+                    internalReprOfExpr(
+                            provider, ((NarrowingConversionNode) receiverNode).getOperand());
+        } else if (receiverNode instanceof ClassNameNode) {
+            // TODO: Type from TypeMirror
+            expression = new ClassExpr(getTypeFromTypeMirror(receiverNode.getType()));
+        } else if (receiverNode instanceof ValueLiteralNode) {
+            ValueLiteralNode node = (ValueLiteralNode) receiverNode;
+            LiteralTree tree = node.getTree();
+            // TODO: ValueLiteral represents all types of literals, whereas short is not available
+            // for LiteralExpr
+            if (node instanceof BooleanLiteralNode) {
+                expression = new BooleanLiteralExpr(((BooleanLiteralNode) node).getValue());
+            } else if (node instanceof NullLiteralNode) {
+                expression = new NullLiteralExpr();
+            } else if (node instanceof StringLiteralNode) {
+                expression = new StringLiteralExpr(((StringLiteralNode) node).getValue());
+            } else if (node instanceof IntegerLiteralNode) {
+                String intLiteralString = String.valueOf(((IntegerLiteralNode) node).getValue());
+                expression = new IntegerLiteralExpr(intLiteralString);
+            } else if (node instanceof LongLiteralNode) {
+                String longLiteralString = String.valueOf(((LongLiteralNode) node).getValue());
+                expression = new LongLiteralExpr(longLiteralString);
+            } else if (node instanceof CharacterLiteralNode) {
+                expression = new CharLiteralExpr(((CharacterLiteralNode) node).getValue());
+            } else if (node instanceof DoubleLiteralNode) {
+                expression = new DoubleLiteralExpr(((DoubleLiteralNode) node).getValue());
+            } else if (node instanceof FloatLiteralNode) {
+                expression = new DoubleLiteralExpr(((FloatLiteralNode) node).getValue());
+            }
+        } else if (receiverNode instanceof ArrayCreationNode) {
+            ArrayCreationNode node = (ArrayCreationNode) receiverNode;
+            NodeList<ArrayCreationLevel> levels = new NodeList<>();
+            NodeList<Expression> values = new NodeList<>();
+            String typeString = node.getType().toString();
+            for (Node dim : node.getDimensions()) {
+                Expression dimExpression = internalReprOfExpr(provider, dim, allowNonDeterministic);
+                levels.add(new ArrayCreationLevel(dimExpression));
+            }
+            for (Node initializer : node.getInitializers()) {
+                Expression initExpression =
+                        internalReprOfExpr(provider, initializer, allowNonDeterministic);
+                values.add(initExpression);
+            }
+            ArrayInitializerExpr arrayInitializerExpr = new ArrayInitializerExpr(values);
+            Type arrayType = getTypeFromTypeMirror(receiverNode.getType());
+            expression = new ArrayCreationExpr(arrayType, levels, arrayInitializerExpr);
+        } else if (receiverNode instanceof MethodInvocationNode) {
+            MethodInvocationNode mn = (MethodInvocationNode) receiverNode;
+            MethodInvocationTree t = mn.getTree();
+            String name = mn.getTarget().getMethod().getSimpleName().toString();
+            if (t == null) {
+                throw new BugInCF("internalReprOfExpr: Unexpected null tree for node: " + mn);
+            }
+            assert TreeUtils.isUseOfElement(t) : "@AssumeAssertion(nullness): tree kind";
+            ExecutableElement invokedMethod = TreeUtils.elementFromUse(t);
+
+            if (allowNonDeterministic || PurityUtils.isDeterministic(provider, invokedMethod)) {
+                NodeList<Expression> args = new NodeList<>();
+                int i = 0;
+                for (Node node : mn.getArguments()) {
+                    args.add(internalReprOfExpr(provider, node));
+                }
+                Expression methodReceiver;
+                if (ElementUtils.isStatic(invokedMethod)) {
+                    // TODO: get Type from TypeMirror
+                    // TODO: is ClassExpr equivalent to ClassName?
+                    Type currentType = getTypeFromTypeMirror(receiverNode.getType());
+                    methodReceiver = new ClassExpr(currentType);
+                } else {
+                    methodReceiver = internalReprOfExpr(provider, mn.getTarget().getReceiver());
+                }
+                expression = new MethodCallExpr(methodReceiver, name, args);
+            }
+        }
+        // expression will be null if not recognised
+        return expression;
     }
 
     /**
@@ -354,6 +522,320 @@ public class FlowExpressions {
     }
 
     /**
+     * @param provider
+     * @param recieverTree
+     * @return internal representation of {@link ExpressionTree} as {@link Expression}
+     */
+    public static Expression internalReprOfExpr(
+            AnnotationProvider provider, ExpressionTree recieverTree) {
+        return internalReprOfExpr(provider, recieverTree, false);
+    }
+
+    /**
+     * @param provider
+     * @param receiverTree
+     * @return internal representation of {@link ExpressionTree} as {@link Expression}
+     */
+    public static Expression internalReprOfExpr(
+            AnnotationProvider provider,
+            ExpressionTree receiverTree,
+            boolean allowNonDeterministic) {
+        Expression expression = null;
+        switch (receiverTree.getKind()) {
+            case ARRAY_ACCESS:
+                {
+                    ArrayAccessTree tree = (ArrayAccessTree) receiverTree;
+                    Expression arrayAccessExpression =
+                            internalReprOfExpr(provider, tree.getExpression());
+                    Expression index = internalReprOfExpr(provider, tree.getIndex());
+                    expression = new ArrayAccessExpr(arrayAccessExpression, index);
+                    break;
+                }
+            case BOOLEAN_LITERAL:
+                {
+                    Boolean value = (Boolean) ((LiteralTree) receiverTree).getValue();
+                    expression = new BooleanLiteralExpr(value);
+                    break;
+                }
+            case CHAR_LITERAL:
+                {
+                    Character value = (Character) ((LiteralTree) receiverTree).getValue();
+                    expression = new CharLiteralExpr(value);
+                    break;
+                }
+            case INT_LITERAL:
+                {
+                    Integer value = (Integer) ((LiteralTree) receiverTree).getValue();
+                    expression = new IntegerLiteralExpr(String.valueOf(value));
+                    break;
+                }
+            case LONG_LITERAL:
+                {
+                    Long value = (Long) ((LiteralTree) receiverTree).getValue();
+                    expression = new LongLiteralExpr(String.valueOf(value));
+                    break;
+                }
+            case STRING_LITERAL:
+                {
+                    String value = ((LiteralTree) receiverTree).getValue().toString();
+                    expression = new StringLiteralExpr(value);
+                    break;
+                }
+            case NULL_LITERAL:
+                expression = new NullLiteralExpr();
+                break;
+            case FLOAT_LITERAL:
+            case DOUBLE_LITERAL:
+                {
+                    Double value = (Double) ((LiteralTree) receiverTree).getValue();
+                    expression = new DoubleLiteralExpr(value);
+                    break;
+                }
+            case NEW_ARRAY:
+                {
+                    NewArrayTree nwt = (NewArrayTree) receiverTree;
+                    NodeList<ArrayCreationLevel> levels = new NodeList<>();
+                    NodeList<Expression> values = new NodeList<>();
+
+                    if (nwt.getDimensions() != null) {
+                        for (ExpressionTree dim : nwt.getDimensions()) {
+                            Expression dimExpression =
+                                    internalReprOfExpr(provider, dim, allowNonDeterministic);
+                            levels.add(new ArrayCreationLevel(dimExpression));
+                        }
+                    }
+                    if (nwt.getInitializers() != null) {
+                        for (ExpressionTree initializer : nwt.getInitializers()) {
+                            Expression initExpression =
+                                    internalReprOfExpr(
+                                            provider, initializer, allowNonDeterministic);
+                            values.add(initExpression);
+                        }
+                    }
+                    ArrayInitializerExpr arrayInitializerExpr = new ArrayInitializerExpr(values);
+                    Type type = getTypeFromTypeMirror(TreeUtils.typeOf(receiverTree));
+                    // TODO: get Type from TypeMirror
+                    expression = new ArrayCreationExpr(type, levels, arrayInitializerExpr);
+                    break;
+                }
+            case METHOD_INVOCATION:
+                {
+                    MethodInvocationTree mn = (MethodInvocationTree) receiverTree;
+                    assert TreeUtils.isUseOfElement(mn) : "@AssumeAssertion(nullness): tree kind";
+                    ExecutableElement invokedMethod = TreeUtils.elementFromUse(mn);
+                    if (PurityUtils.isDeterministic(provider, invokedMethod)
+                            || allowNonDeterministic) {
+                        NodeList<Expression> params = new NodeList<>();
+                        for (ExpressionTree p : mn.getArguments()) {
+                            params.add(internalReprOfExpr(provider, p));
+                        }
+                        Expression methodScope;
+
+                        if (ElementUtils.isStatic(invokedMethod)) {
+                            Type classNameType =
+                                    getTypeFromTypeMirror(TreeUtils.typeOf(mn.getMethodSelect()));
+                            methodScope = new ClassExpr(classNameType);
+                        } else {
+                            ExpressionTree methodReceiverTree = TreeUtils.getReceiverTree(mn);
+                            if (methodReceiverTree != null) {
+                                methodScope = internalReprOfExpr(provider, methodReceiverTree);
+                            } else {
+                                methodScope = internalReprOfImplicitReceiverExpr(invokedMethod);
+                            }
+                        }
+                        List<? extends Tree> typeArgs = mn.getTypeArguments();
+                        NodeList<Type> typeArgsNodeList = new NodeList<>();
+                        for (Tree tree : typeArgs) {
+                            Type type = getTypeFromTypeMirror(TreeUtils.typeOf(tree));
+                            typeArgsNodeList.add(type);
+                            TreeUtils.typeOf(tree);
+                        }
+                        // TODO: getMethodName from method MethodInvocationTree
+                        // expression = new MethodCallExpr(methodScope, typeArgsNodeList, , params);
+                    } else {
+                        expression = null;
+                    }
+                    break;
+                }
+            case MEMBER_SELECT:
+                expression =
+                        internalReprOfMemberSelectExpr(provider, (MemberSelectTree) receiverTree);
+                break;
+            case IDENTIFIER:
+                {
+                    IdentifierTree it = (IdentifierTree) receiverTree;
+                    TypeMirror idType = TreeUtils.typeOf(it);
+                    if (it.getName().contentEquals("this")) {
+                        expression = new ThisExpr(new Name(it.getName().toString()));
+                        break;
+                    }
+                    assert TreeUtils.isUseOfElement(it) : "@AssumeAssertion(nullness): tree kind";
+                    Element element = TreeUtils.elementFromTree(it);
+                    if (ElementUtils.isClassElement(element)) {
+                        // TODO: get Type from TypeMirror
+                        expression = new ClassExpr(getTypeFromTypeMirror(element.asType()));
+                        break;
+                    }
+                    switch (element.getKind()) {
+                        case LOCAL_VARIABLE:
+                        case RESOURCE_VARIABLE:
+                        case EXCEPTION_PARAMETER:
+                        case PARAMETER:
+                            // TODO: no LocalVariableExpr exists equivalent to LocalVariable
+                            expression = new NameExpr(it.getName().toString());
+                            break;
+                        case FIELD:
+                            Expression fieldAccessScope;
+                            @SuppressWarnings(
+                                    "nullness:dereference.of.nullable") // a field has enclosing
+                            // class
+                            TypeMirror enclosingType =
+                                    ElementUtils.enclosingClass(element).asType();
+                            if (ElementUtils.isStatic(element)) {
+                                fieldAccessScope =
+                                        new ClassExpr(getTypeFromTypeMirror(enclosingType));
+                            } else {
+                                fieldAccessScope = new ThisExpr(new Name(enclosingType.toString()));
+                            }
+                            expression =
+                                    new FieldAccessExpr(fieldAccessScope, it.getName().toString());
+                            break;
+                        default:
+                            expression = null;
+                    }
+                    break;
+                }
+            case UNARY_PLUS:
+                return internalReprOfExpr(
+                        provider,
+                        ((UnaryTree) receiverTree).getExpression(),
+                        allowNonDeterministic);
+            default:
+                expression = null;
+        }
+
+        // TODO: Expression has no Unknown equivalent
+        return expression;
+    }
+
+    /**
+     * Utility method to get {@link Type} from {@link TypeMirror}
+     *
+     * @param typeMirror
+     * @return {@link Type} equivalent of {@link TypeMirror}
+     */
+    public static Type getTypeFromTypeMirror(TypeMirror typeMirror) {
+        Type type = null;
+        if (typeMirror instanceof PrimitiveType) {
+            switch (((PrimitiveType) typeMirror).getKind()) {
+                case BOOLEAN:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.BOOLEAN);
+                    break;
+                case CHAR:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.CHAR);
+                    break;
+                case BYTE:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.BYTE);
+                    break;
+                case SHORT:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.SHORT);
+                    break;
+                case INT:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.INT);
+                    break;
+                case LONG:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.LONG);
+                    break;
+                case FLOAT:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.FLOAT);
+                    break;
+                case DOUBLE:
+                    type =
+                            new com.github.javaparser.ast.type.PrimitiveType(
+                                    com.github.javaparser.ast.type.PrimitiveType.Primitive.DOUBLE);
+                    break;
+            }
+        } else if (typeMirror instanceof ReferenceType) {
+            if (typeMirror instanceof DeclaredType) {
+                DeclaredType dType = (DeclaredType) typeMirror;
+                type = getTypeExpr(dType).getType();
+                /*List<? extends TypeMirror> paramTypeMirrors = dType.getTypeArguments();
+                String fqName = dType.asElement().toString();
+                int lastDotIndex = fqName.lastIndexOf('.');
+                String className = fqName.substring(lastDotIndex + 1);
+                if (paramTypeMirrors == null || paramTypeMirrors.size() == 0) {
+                    // This type does not include type parameters like MyClass<String, Integer>
+                    // TODO: get Outer ClassOrInterfaceType as scope
+                    type =
+                            new ClassOrInterfaceType(
+                                    */
+                /*Add Outer ClassOrInterfaceType here*/
+                /* null, fqName);
+                } else {
+                    NodeList<Type> typeArgs = new NodeList<>();
+                    for (int i = 0; i < paramTypeMirrors.size(); ++i) {
+                        TypeMirror param = paramTypeMirrors.get(i);
+                        Type paramType = getTypeFromTypeMirror(param);
+                        typeArgs.add(paramType);
+                    }
+                    SimpleName name = new SimpleName(className);
+                    // TODO: get Outer ClassOrInterfaceType as scope
+                    type =
+                            new ClassOrInterfaceType(
+                                    */
+                /*Add Outer ClassOrInterfaceType here*/
+                /* null, name, typeArgs);
+                }*/
+            } else if (typeMirror instanceof ArrayType) {
+                ArrayType arrayTypeMirror = (ArrayType) typeMirror;
+                TypeMirror compTypeMirror = arrayTypeMirror.getComponentType();
+                Type compType = getTypeFromTypeMirror(compTypeMirror);
+                // TODO: get ArrayType.Origin i.e. int[] a or int a[] (Square braces occur beside
+                // type or beside variable)
+                List<? extends AnnotationMirror> annoMirrors =
+                        arrayTypeMirror.getAnnotationMirrors();
+                NodeList<AnnotationExpr> annotationExprs = new NodeList<>();
+                for (AnnotationMirror annoMirror : annoMirrors) {
+                    annotationExprs.add(getAnnotationExpr(annoMirror));
+                }
+                type =
+                        new com.github.javaparser.ast.type.ArrayType(
+                                compType,
+                                com.github.javaparser.ast.type.ArrayType.Origin.NAME,
+                                annotationExprs);
+            }
+        }
+        return type;
+    }
+
+    /** Assuming the string form of AnnotationMirror will be parsed to give AnnotationExpr */
+    private static AnnotationExpr getAnnotationExpr(AnnotationMirror mirror) {
+        return (AnnotationExpr) StaticJavaParser.parseExpression(mirror.toString());
+    }
+
+    /** Assuming the string form of DeclaredType will give a TypeExpr */
+    private static TypeExpr getTypeExpr(DeclaredType type) {
+        return (TypeExpr) StaticJavaParser.parseExpression(type.toString());
+    }
+
+    private static TypeExpr getTypeExpr(TypeMirror typeMirror) {
+        return (TypeExpr) StaticJavaParser.parseExpression(typeMirror.toString());
+    }
+    /**
      * Returns the implicit receiver of ele.
      *
      * <p>Returns either a new ClassName or a new ThisReference depending on whether ele is static
@@ -378,6 +860,26 @@ public class FlowExpressions {
     }
 
     /**
+     * returns {@link ClassExpr} or {@link ThisExpr} for the enclosing type
+     *
+     * @param element
+     * @return {@link ClassExpr} if static member of method or {@link ThisExpr}
+     */
+    public static Expression internalReprOfImplicitReceiverExpr(Element element) {
+        TypeElement enclosingClass = ElementUtils.enclosingClass(element);
+        if (enclosingClass == null) {
+            throw new BugInCF(
+                    "internalReprOfImplicitReceiver's arg has no enclosing class: " + element);
+        }
+        TypeMirror enclosingType = enclosingClass.asType();
+        if (ElementUtils.isStatic(element)) {
+            return new ClassExpr(getTypeFromTypeMirror(enclosingType));
+        } else {
+            return new ThisExpr(new Name(enclosingType.toString()));
+        }
+    }
+
+    /**
      * Returns either a new ClassName or ThisReference Receiver object for the enclosingType.
      *
      * <p>The Tree should be an expression or a statement that does not have a receiver or an
@@ -392,6 +894,20 @@ public class FlowExpressions {
             return new ClassName(enclosingType);
         } else {
             return new ThisReference(enclosingType);
+        }
+    }
+
+    /**
+     * returns {@link ClassExpr} or {@link ThisExpr} for the enclosing type
+     *
+     * @return {@link ClassExpr} if static member of method or {@link ThisExpr}
+     */
+    public static Expression internalReprOfPseudoReceiverExpr(
+            TreePath path, TypeMirror enclosingType) {
+        if (TreeUtils.isTreeInStaticScope(path)) {
+            return new ClassExpr(getTypeFromTypeMirror(enclosingType));
+        } else {
+            return new ThisExpr(new Name(enclosingType.toString()));
         }
     }
 
@@ -424,6 +940,44 @@ public class FlowExpressions {
     }
 
     /**
+     * To get the Receiver expression for a member/field Access
+     *
+     * @param provider
+     * @param memberSelectTree
+     * @return {@link Expression} that represents receiver of expression
+     */
+    public static Expression internalReprOfMemberSelectExpr(
+            AnnotationProvider provider, MemberSelectTree memberSelectTree) {
+        TypeMirror expressionType = TreeUtils.typeOf(memberSelectTree.getExpression());
+
+        if (TreeUtils.isClassLiteral(memberSelectTree)) {
+            return new ClassExpr(getTypeFromTypeMirror(expressionType));
+        }
+        assert TreeUtils.isUseOfElement(memberSelectTree) : "@AssumeAssertion(nullness): tree kind";
+        Element element = TreeUtils.elementFromUse(memberSelectTree);
+        if (ElementUtils.isClassElement(element)) {
+            // o instanceof MyClass.InnerClass
+            // o instanceof MyClass.InnerInterface
+            TypeMirror selectType = TreeUtils.typeOf(memberSelectTree);
+            return new ClassExpr(getTypeFromTypeMirror(selectType));
+        }
+        switch (element.getKind()) {
+            case METHOD:
+            case CONSTRUCTOR:
+                return internalReprOfExpr(provider, memberSelectTree.getExpression());
+            case ENUM_CONSTANT:
+            case FIELD:
+                TypeMirror fieldType = TreeUtils.typeOf(memberSelectTree);
+                Expression scope = internalReprOfExpr(provider, memberSelectTree.getExpression());
+                String memberName = memberSelectTree.getIdentifier().toString();
+                return new FieldAccessExpr(scope, memberName);
+            default:
+                throw new BugInCF(
+                        "Unexpected element kind: %s element: %s", element.getKind(), element);
+        }
+    }
+
+    /**
      * Returns Receiver objects for the formal parameters of the method in which path is enclosed.
      *
      * @param annotationProvider annotationProvider
@@ -442,6 +996,92 @@ public class FlowExpressions {
             internalArguments.add(internalReprOf(annotationProvider, new LocalVariableNode(arg)));
         }
         return internalArguments;
+    }
+
+    /**
+     * Returns the list of {@link Expression}s for the formal parameters of a method
+     *
+     * @param annotationProvider
+     * @param path TreePath enclosed by the method
+     * @return List of Expressions that represent formal parameters
+     */
+    public static List<Expression> getParamExprOfEnclosingMethod(
+            AnnotationProvider annotationProvider, TreePath path) {
+        MethodTree methodTree = TreeUtils.enclosingMethod(path);
+        if (methodTree == null) {
+            return null;
+        }
+        List<Expression> internalArguments = new ArrayList<>();
+        for (VariableTree arg : methodTree.getParameters()) {
+            internalArguments.add(
+                    internalReprOfExpr(annotationProvider, new LocalVariableNode(arg)));
+        }
+        return internalArguments;
+    }
+
+    public static List<Parameter> getParamsOfEnclosingMethod(TreePath path) {
+        MethodTree methodTree = TreeUtils.enclosingMethod(path);
+        if (methodTree == null) {
+            return null;
+        }
+        List<Parameter> formalArgs = new ArrayList<>();
+        for (VariableTree arg : methodTree.getParameters()) {
+            LocalVariableNode node = new LocalVariableNode(arg);
+            NodeList<com.github.javaparser.ast.Modifier> paramMods = new NodeList<>();
+            for (Modifier modifier : methodTree.getModifiers().getFlags()) {
+                paramMods.add(getModifier(modifier));
+            }
+            Parameter parameter =
+                    new Parameter(
+                            paramMods,
+                            getTypeFromTypeMirror(node.getType()),
+                            new SimpleName(arg.getName().toString()));
+            formalArgs.add(parameter);
+        }
+        return formalArgs;
+    }
+
+    private static com.github.javaparser.ast.Modifier getModifier(Modifier modifier) {
+        switch (modifier) {
+            case PUBLIC:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.PUBLIC);
+            case PROTECTED:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.PROTECTED);
+            case PRIVATE:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.PRIVATE);
+            case ABSTRACT:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.ABSTRACT);
+            case DEFAULT:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.DEFAULT);
+            case STATIC:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.STATIC);
+            case FINAL:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.FINAL);
+            case TRANSIENT:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.TRANSIENT);
+            case VOLATILE:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.VOLATILE);
+            case SYNCHRONIZED:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.SYNCHRONIZED);
+            case NATIVE:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.NATIVE);
+            case STRICTFP:
+                return new com.github.javaparser.ast.Modifier(
+                        com.github.javaparser.ast.Modifier.Keyword.STRICTFP);
+            default:
+                throw new IllegalStateException("Unknown Modifier found");
+        }
     }
 
     /**
@@ -1475,4 +2115,6 @@ public class FlowExpressions {
             return sb.toString();
         }
     }
+
+    public static class LocalVariableExpr extends NameExpr {}
 }

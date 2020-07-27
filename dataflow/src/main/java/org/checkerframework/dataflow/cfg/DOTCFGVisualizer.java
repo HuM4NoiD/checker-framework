@@ -1,5 +1,9 @@
 package org.checkerframework.dataflow.cfg;
 
+import com.github.javaparser.ast.expr.ArrayAccessExpr;
+import com.github.javaparser.ast.expr.ClassExpr;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.sun.tools.javac.tree.JCTree;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -247,9 +251,27 @@ public class DOTCFGVisualizer<
     }
 
     @Override
+    public String visualizeStoreFieldVals(FieldAccessExpr fieldAccessExpr, V value) {
+        return storeEntryIndent
+                + fieldAccessExpr
+                + " > "
+                + escapeDoubleQuotes(value)
+                + leftJustifiedTerminator;
+    }
+
+    @Override
     public String visualizeStoreArrayVal(FlowExpressions.ArrayAccess arrayValue, V value) {
         return storeEntryIndent
                 + arrayValue
+                + " > "
+                + escapeDoubleQuotes(value)
+                + leftJustifiedTerminator;
+    }
+
+    @Override
+    public String visualizeStoreArrayVal(ArrayAccessExpr arrayAccessExpr, V value) {
+        return storeEntryIndent
+                + arrayAccessExpr
                 + " > "
                 + escapeDoubleQuotes(value)
                 + leftJustifiedTerminator;
@@ -265,7 +287,25 @@ public class DOTCFGVisualizer<
     }
 
     @Override
+    public String visualizeStoreMethodVals(MethodCallExpr methodCall, V value) {
+        return storeEntryIndent
+                + escapeDoubleQuotes(methodCall)
+                + " > "
+                + value
+                + leftJustifiedTerminator;
+    }
+
+    @Override
     public String visualizeStoreClassVals(FlowExpressions.ClassName className, V value) {
+        return storeEntryIndent
+                + className
+                + " > "
+                + escapeDoubleQuotes(value)
+                + leftJustifiedTerminator;
+    }
+
+    @Override
+    public String visualizeStoreClassVals(ClassExpr className, V value) {
         return storeEntryIndent
                 + className
                 + " > "

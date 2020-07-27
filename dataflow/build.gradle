@@ -1,6 +1,7 @@
 dependencies {
     implementation project(':javacutil')
     implementation project(':checker-qual')
+    implementation 'com.github.javaparser:javaparser-core:3.16.1'
 }
 
 shadowJar {
