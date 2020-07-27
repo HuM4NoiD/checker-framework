@@ -1219,6 +1219,16 @@ public class FlowExpressionParseUtil {
         }
     }
 
+    public static class FlowExprContext {
+        public ExpressionTree receiver;
+
+        public List<ExpressionTree> methodArgs;
+
+        public ExpressionTree outerReceiver;
+
+        public BaseContext checkerContext;
+    }
+
     /**
      * Returns the type of the inner most enclosing class.Type.noType is returned if no enclosing
      * class is found. This is in contrast to {@link DeclaredType#getEnclosingType()} which returns

@@ -1,6 +1,5 @@
 package org.checkerframework.framework.type;
 
-import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.Expression;
 import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.ClassTree;
@@ -758,7 +757,7 @@ public abstract class GenericAnnotatedTypeFactory<
                         FlowExpressions.getParametersOfEnclosingMethod(this, currentPath),
                         this.getContext(),
                         expr,
-                        new ArrayList<Parameter>(),
+                        FlowExpressions.getParamsOfEnclosingMethod(currentPath),
                         new ArrayList<Expression>());
 
         return FlowExpressionParseUtil.parse(expression, context, currentPath, true);

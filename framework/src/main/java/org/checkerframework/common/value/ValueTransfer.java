@@ -1,5 +1,6 @@
 package org.checkerframework.common.value;
 
+import com.github.javaparser.ast.expr.Expression;
 import com.sun.source.tree.ExpressionTree;
 import com.sun.source.tree.Tree;
 import java.util.ArrayList;
@@ -492,6 +493,8 @@ public class ValueTransfer extends CFTransfer {
      */
     private void refineAtLengthAccess(Node lengthNode, Node receiverNode, CFStore store) {
         Receiver lengthRec = FlowExpressions.internalReprOf(analysis.getTypeFactory(), lengthNode);
+        Expression lengthExpr =
+                FlowExpressions.internalReprOfExpr(analysis.getTypeFactory(), lengthNode);
 
         // If the expression is not representable (for example if String.length() for some reason is
         // not marked @Pure, then do not refine.
@@ -500,6 +503,7 @@ public class ValueTransfer extends CFTransfer {
         }
 
         CFValue value = store.getValue(lengthRec);
+        CFValue value2 = store.getValue(lengthExpr);
         if (value == null) {
             return;
         }
@@ -512,7 +516,9 @@ public class ValueTransfer extends CFTransfer {
             // If the length is bottom, then this is dead code, so the receiver type
             // should also be bottom.
             Receiver receiver = FlowExpressions.internalReprOf(atypefactory, receiverNode);
+            Expression expression = FlowExpressions.internalReprOfExpr(atypefactory, receiverNode);
             store.insertValue(receiver, lengthAnno);
+            store.insertValue(expression, lengthAnno);
             return;
         }
 
@@ -539,7 +545,10 @@ public class ValueTransfer extends CFTransfer {
             combinedRecAnno = hierarchy.greatestLowerBound(oldRecAnno, newRecAnno);
         }
         Receiver receiver = FlowExpressions.internalReprOf(analysis.getTypeFactory(), receiverNode);
+        Expression expression =
+                FlowExpressions.internalReprOfExpr(analysis.getTypeFactory(), receiverNode);
         store.insertValue(receiver, combinedRecAnno);
+        store.insertValue(expression, combinedRecAnno);
     }
 
     @Override
@@ -1321,9 +1330,14 @@ public class ValueTransfer extends CFTransfer {
         // If node is assignment, iterate over lhs and rhs; otherwise, iterator contains just node.
         for (Node internal : splitAssignments(node)) {
             Receiver rec = FlowExpressions.internalReprOf(analysis.getTypeFactory(), internal);
+            Expression expression =
+                    FlowExpressions.internalReprOfExpr(analysis.getTypeFactory(), internal);
             CFValue currentValueFromStore;
-            if (CFAbstractStore.canInsertReceiver(rec)) {
+            if (CFAbstractStore.canInsertReceiver(
+                    rec) /*CFAbstractStore.canInsertExpression(expression)*/) {
                 currentValueFromStore = store.getValue(rec);
+                //                TODO: Use below call instead of the one Above;
+                //                currentValueFromStore = store.getValue(expression);
             } else {
                 // Don't just `continue;` which would skip the calls to refine{Array,String}...
                 currentValueFromStore = null;
@@ -1336,6 +1350,7 @@ public class ValueTransfer extends CFTransfer {
             // type.
             AnnotationMirror newAnno = hierarchy.greatestLowerBound(anno, currentAnno);
             store.insertValue(rec, newAnno);
+            store.insertValue(expression, newAnno);
 
             if (node instanceof FieldAccessNode) {
                 refineArrayAtLengthAccess((FieldAccessNode) internal, store);
@@ -1478,10 +1493,14 @@ public class ValueTransfer extends CFTransfer {
             if (minLength != 0) {
                 Receiver receiver =
                         FlowExpressions.internalReprOf(atypefactory, n.getTarget().getReceiver());
+                Expression expression =
+                        FlowExpressions.internalReprOfExpr(
+                                atypefactory, n.getTarget().getReceiver());
 
                 AnnotationMirror minLenAnno =
                         atypefactory.createArrayLenRangeAnnotation(minLength, Integer.MAX_VALUE);
                 thenStore.insertValue(receiver, minLenAnno);
+                thenStore.insertValue(expression, minLenAnno);
             }
         }
 
