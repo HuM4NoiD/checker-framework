@@ -545,6 +545,8 @@ public class DependentTypesHelper {
             }
             return result.toString();
         } catch (FlowExpressionParseUtil.FlowExpressionParseException e) {
+            // TODO: here the error string is given to form the anno param in error message
+            // Why is error returned here as a param for string?
             return new DependentTypesError(expression, e).toString();
         }
     }
@@ -606,8 +608,15 @@ public class DependentTypesHelper {
                     AnnotationUtils.getElementValueArray(anno, value, String.class, true);
             List<String> standardizedStrings = new ArrayList<>();
             for (String expression : expressionStrings) {
-                standardizedStrings.add(
-                        standardizeString(expression, context, localScope, useLocalScope));
+                // TODO: calling this function leads to the wrong param in the @KeyFor anno
+                String standardizedString =
+                        standardizeString(expression, context, localScope, useLocalScope);
+                if (DependentTypesError.isExpressionError(standardizedString)) {
+                    // Why is an error message being added in the anno params to show?
+                    // See below diff
+                    continue;
+                }
+                standardizedStrings.add(standardizedString);
             }
             builder.setValue(value, standardizedStrings);
         }
