@@ -340,6 +340,7 @@ public class FlowExpressionParseUtil {
             if (fieldElem != null && fieldElem.getKind() == ElementKind.FIELD) {
                 FieldAccess fieldAccess =
                         (FieldAccess) getReceiverField(s, context, originalReceiver, fieldElem);
+                // TODO: 877 get receiver field here;
                 TypeElement scopeClassElement =
                         TypesUtils.getTypeElement(fieldAccess.getReceiver().getType());
                 if (!originalReceiver
@@ -648,6 +649,7 @@ public class FlowExpressionParseUtil {
                                 context.checkerContext.getAnnotationProvider(),
                                 new ImplicitThisLiteralNode(receiverType));
             }
+            // TODO: 877 the exception is thrown here
             if (locationOfField instanceof ClassName) {
                 throw new ParseRuntimeException(
                         constructParserException(
