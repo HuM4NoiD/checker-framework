@@ -578,6 +578,7 @@ public class DependentTypesHelper {
         if (!isExpressionAnno(anno)) {
             return anno;
         }
+        System.out.println("st method 1");
         return standardizeDependentTypeAnnotation(context, localScope, anno, useLocalScope);
     }
 
@@ -590,6 +591,7 @@ public class DependentTypesHelper {
         if (!isExpressionAnno(anno)) {
             return null;
         }
+
         return standardizeDependentTypeAnnotation(context, localScope, anno, useLocalScope);
     }
 
@@ -663,6 +665,7 @@ public class DependentTypesHelper {
         @Override
         protected Void scan(AnnotatedTypeMirror type, Void aVoid) {
             List<AnnotationMirror> newAnnos = new ArrayList<>();
+            // TODO: for 877
             for (AnnotationMirror anno : type.getAnnotations()) {
                 AnnotationMirror annotationMirror =
                         standardizeAnnotationIfDependentType(
