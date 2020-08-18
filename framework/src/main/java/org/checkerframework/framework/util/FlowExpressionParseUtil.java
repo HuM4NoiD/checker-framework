@@ -650,10 +650,11 @@ public class FlowExpressionParseUtil {
                                 new ImplicitThisLiteralNode(receiverType));
             }
             // TODO: 877 the exception is thrown here
+            System.out.println(s);
             if (locationOfField instanceof ClassName) {
-                throw new ParseRuntimeException(
-                        constructParserException(
-                                s, "a non-static field cannot have a class name as a receiver."));
+                /*throw new ParseRuntimeException(
+                constructParserException(
+                        s, "a non-static field cannot have a class name as a receiver."));*/
             }
             return new FieldAccess(locationOfField, fieldType, fieldElem);
         }

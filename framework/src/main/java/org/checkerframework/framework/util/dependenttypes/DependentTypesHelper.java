@@ -616,7 +616,7 @@ public class DependentTypesHelper {
                 if (DependentTypesError.isExpressionError(standardizedString)) {
                     // Why is an error message being added in the anno params to show?
                     // See below diff
-                    continue;
+                    //                    continue;
                 }
                 standardizedStrings.add(standardizedString);
             }
