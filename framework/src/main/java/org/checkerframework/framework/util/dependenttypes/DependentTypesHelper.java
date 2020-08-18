@@ -578,7 +578,6 @@ public class DependentTypesHelper {
         if (!isExpressionAnno(anno)) {
             return anno;
         }
-        System.out.println("st method 1");
         return standardizeDependentTypeAnnotation(context, localScope, anno, useLocalScope);
     }
 
