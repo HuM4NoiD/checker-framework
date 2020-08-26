@@ -340,7 +340,6 @@ public class FlowExpressionParseUtil {
             if (fieldElem != null && fieldElem.getKind() == ElementKind.FIELD) {
                 FieldAccess fieldAccess =
                         (FieldAccess) getReceiverField(context, originalReceiver, fieldElem);
-                // TODO: 877 get receiver field here;
                 TypeElement scopeClassElement =
                         TypesUtils.getTypeElement(fieldAccess.getReceiver().getType());
                 if (!originalReceiver
@@ -647,11 +646,10 @@ public class FlowExpressionParseUtil {
                                 context.checkerContext.getAnnotationProvider(),
                                 new ImplicitThisLiteralNode(receiverType));
             }
-
             /*if (locationOfField instanceof ClassName) {
-                locationOfField = FlowExpressions.internalReprOf(
-                        context.checkerContext.getAnnotationProvider(),
-                        new ImplicitThisLiteralNode(receiverType));
+                throw new ParseRuntimeException(
+                        constructParserException(
+                                s, "a non-static field cannot have a class name as a receiver."));
             }*/
             return new FieldAccess(locationOfField, fieldType, fieldElem);
         }
