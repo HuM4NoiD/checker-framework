@@ -648,10 +648,6 @@ public class FlowExpressionParseUtil {
                                 new ImplicitThisLiteralNode(receiverType));
             }
 
-            if (locationOfField instanceof LocalVariable) {
-                System.out.println("loc found");
-            }
-
             /*if (locationOfField instanceof ClassName) {
                 locationOfField = FlowExpressions.internalReprOf(
                         context.checkerContext.getAnnotationProvider(),

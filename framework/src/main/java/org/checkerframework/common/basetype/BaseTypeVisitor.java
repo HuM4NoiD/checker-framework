@@ -1147,7 +1147,6 @@ public class BaseTypeVisitor<Factory extends GenericAnnotatedTypeFactory<?, ?, ?
                 atypeFactory.getDependentTypesHelper().checkType(variableType, node);
             }
             // If there's no assignment in this variable declaration, skip it.
-            // TODO: 877 assn type incompatible
             if (node.getInitializer() != null) {
                 commonAssignmentCheck(node, node.getInitializer(), "assignment.type.incompatible");
             } else {
