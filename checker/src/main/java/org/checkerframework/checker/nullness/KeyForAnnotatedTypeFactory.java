@@ -137,6 +137,9 @@ public class KeyForAnnotatedTypeFactory
             if (subtype.hasAnnotation(KeyForBottom.class)) {
                 return true;
             }
+
+            // TODO: check for receivers here
+
             return super.isSubtype(subtype, supertype, top);
         }
     }

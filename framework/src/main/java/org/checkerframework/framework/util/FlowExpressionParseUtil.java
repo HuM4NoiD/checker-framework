@@ -311,7 +311,7 @@ public class FlowExpressionParseUtil {
                 if (varElem != null) {
                     if (varElem.getKind() == ElementKind.FIELD) {
                         boolean isOriginalReceiver = context.receiver instanceof ThisReference;
-                        return getReceiverField(s, context, isOriginalReceiver, varElem);
+                        return getReceiverField(context, isOriginalReceiver, varElem);
                     } else {
                         return new LocalVariable(varElem);
                     }
@@ -339,7 +339,7 @@ public class FlowExpressionParseUtil {
 
             if (fieldElem != null && fieldElem.getKind() == ElementKind.FIELD) {
                 FieldAccess fieldAccess =
-                        (FieldAccess) getReceiverField(s, context, originalReceiver, fieldElem);
+                        (FieldAccess) getReceiverField(context, originalReceiver, fieldElem);
                 // TODO: 877 get receiver field here;
                 TypeElement scopeClassElement =
                         TypesUtils.getTypeElement(fieldAccess.getReceiver().getType());
@@ -624,11 +624,9 @@ public class FlowExpressionParseUtil {
         /**
          * Returns the receiver of the passed String name.
          *
-         * @param s a String representing an identifier (name expression, no dots in it)
          * @return the receiver of the passed String name
          */
         private static Receiver getReceiverField(
-                String s,
                 FlowExpressionContext context,
                 boolean originalReceiver,
                 VariableElement fieldElem) {
@@ -649,12 +647,16 @@ public class FlowExpressionParseUtil {
                                 context.checkerContext.getAnnotationProvider(),
                                 new ImplicitThisLiteralNode(receiverType));
             }
-            // TODO: 877 the exception is thrown here
-            if (locationOfField instanceof ClassName) {
-                throw new ParseRuntimeException(
-                        constructParserException(
-                                s, "a non-static field cannot have a class name as a receiver."));
+
+            if (locationOfField instanceof LocalVariable) {
+                System.out.println("loc found");
             }
+
+            /*if (locationOfField instanceof ClassName) {
+                locationOfField = FlowExpressions.internalReprOf(
+                        context.checkerContext.getAnnotationProvider(),
+                        new ImplicitThisLiteralNode(receiverType));
+            }*/
             return new FieldAccess(locationOfField, fieldType, fieldElem);
         }
 

@@ -6,9 +6,8 @@ import java.util.HashMap;
 import java.util.Map;
 import org.checkerframework.checker.nullness.qual.*;
 
-// @SuppressWarnings("argument.type.incompatible")
 class KeyForStaticField {
-    //    @SuppressWarnings("keyfor")
+    @SuppressWarnings("keyfor")
     public static final @KeyFor("this.map") String STATIC_KEY = "some text";
 
     private Map<String, Integer> map;
