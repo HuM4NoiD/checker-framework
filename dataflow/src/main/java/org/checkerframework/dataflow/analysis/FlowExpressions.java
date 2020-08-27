@@ -667,7 +667,7 @@ public class FlowExpressions {
 
         @Override
         public String toString() {
-            return "this";
+            return type.toString() + ".this";
         }
 
         @Override
