@@ -66,10 +66,13 @@ import com.sun.tools.javac.util.Context;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -370,6 +373,13 @@ public class CFGBuilder {
         public String toString() {
             throw new BugInCF("DO NOT CALL ExtendedNode.toString(). Write your own.");
         }
+
+        /**
+         * Returns a verbose string representation of this, useful for debugging.
+         *
+         * @return a string representation of this
+         */
+        abstract String toStringDebug();
     }
 
     /** An extended node of type {@code NODE}. */
@@ -396,6 +406,11 @@ public class CFGBuilder {
         @Override
         public String toString() {
             return "NodeHolder(" + node + ")";
+        }
+
+        @Override
+        public String toStringDebug() {
+            return "NodeHolder(" + node.toStringDebug() + ")";
         }
     }
 
@@ -440,6 +455,11 @@ public class CFGBuilder {
         @Override
         public String toString() {
             return "NodeWithExceptionsHolder(" + node + ")";
+        }
+
+        @Override
+        public String toStringDebug() {
+            return "NodeWithExceptionsHolder(" + node.toStringDebug() + ")";
         }
     }
 
@@ -511,6 +531,11 @@ public class CFGBuilder {
         public String toString() {
             return "TwoTargetConditionalJump(" + getThenLabel() + ", " + getElseLabel() + ")";
         }
+
+        @Override
+        public String toStringDebug() {
+            return toString();
+        }
     }
 
     /** An extended node of type {@link ExtendedNodeType#UNCONDITIONAL_JUMP}. */
@@ -545,6 +570,26 @@ public class CFGBuilder {
         public String toString() {
             return "JumpMarker(" + getLabel() + ")";
         }
+
+        @Override
+        public String toStringDebug() {
+            return toString();
+        }
+    }
+
+    /**
+     * Return a printed representation of a collection of extended nodes.
+     *
+     * @param nodes a collection of extended nodes to format
+     * @return a printed representation of the given collection
+     */
+    public static String extendedNodeCollectionToStringDebug(
+            Collection<? extends ExtendedNode> nodes) {
+        StringJoiner result = new StringJoiner(", ", "[", "]");
+        for (ExtendedNode n : nodes) {
+            result.add(n.toStringDebug());
+        }
+        return result.toString();
     }
 
     /**
@@ -801,10 +846,12 @@ public class CFGBuilder {
      */
     @SuppressWarnings("serial")
     protected static class TryFinallyScopeMap extends HashMap<Name, Label> {
+        /** New labels within a try block that were added by this implementation. */
         private final Map<Name, Label> accessedNames;
 
+        /** Create a new TryFinallyScopeMap. */
         protected TryFinallyScopeMap() {
-            this.accessedNames = new HashMap<>();
+            this.accessedNames = new LinkedHashMap<>();
         }
 
         @Override
@@ -936,10 +983,11 @@ public class CFGBuilder {
                 if (cur.getType() == BlockType.REGULAR_BLOCK) {
                     RegularBlockImpl b = (RegularBlockImpl) cur;
                     if (b.isEmpty()) {
-                        Set<RegularBlockImpl> empty = new HashSet<>();
+                        Set<RegularBlockImpl> emptyBlocks = new HashSet<>();
                         Set<PredecessorHolder> predecessors = new HashSet<>();
-                        BlockImpl succ = computeNeighborhoodOfEmptyBlock(b, empty, predecessors);
-                        for (RegularBlockImpl e : empty) {
+                        BlockImpl succ =
+                                computeNeighborhoodOfEmptyBlock(b, emptyBlocks, predecessors);
+                        for (RegularBlockImpl e : emptyBlocks) {
                             succ.removePredecessor(e);
                             dontVisit.add(e);
                         }
@@ -1002,32 +1050,32 @@ public class CFGBuilder {
         }
 
         /**
-         * Compute the set of empty regular basic blocks {@code empty}, starting at {@code start}
-         * and going both forward and backwards. Furthermore, compute the predecessors of these
-         * empty blocks ({@code predecessors} ), and their single successor (return value).
+         * Compute the set of empty regular basic blocks {@code emptyBlocks}, starting at {@code
+         * start} and going both forward and backwards. Furthermore, compute the predecessors of
+         * these empty blocks ({@code predecessors} ), and their single successor (return value).
          *
          * @param start the starting point of the search (an empty, regular basic block)
-         * @param empty an empty set to be filled by this method with all empty basic blocks found
+         * @param emptyBlocks a set to be filled by this method with all empty basic blocks found
          *     (including {@code start}).
-         * @param predecessors an empty set to be filled by this method with all predecessors
+         * @param predecessors a set to be filled by this method with all predecessors
          * @return the single successor of the set of the empty basic blocks
          */
         @SuppressWarnings("interning:not.interned") // AST node comparisons
         protected static BlockImpl computeNeighborhoodOfEmptyBlock(
                 RegularBlockImpl start,
-                Set<RegularBlockImpl> empty,
+                Set<RegularBlockImpl> emptyBlocks,
                 Set<PredecessorHolder> predecessors) {
 
             // get empty neighborhood that come before 'start'
-            computeNeighborhoodOfEmptyBlockBackwards(start, empty, predecessors);
+            computeNeighborhoodOfEmptyBlockBackwards(start, emptyBlocks, predecessors);
 
             // go forward
             BlockImpl succ = (BlockImpl) start.getSuccessor();
             while (succ.getType() == BlockType.REGULAR_BLOCK) {
                 RegularBlockImpl cur = (RegularBlockImpl) succ;
                 if (cur.isEmpty()) {
-                    computeNeighborhoodOfEmptyBlockBackwards(cur, empty, predecessors);
-                    assert empty.contains(cur) : "cur ought to be in empty";
+                    computeNeighborhoodOfEmptyBlockBackwards(cur, emptyBlocks, predecessors);
+                    assert emptyBlocks.contains(cur) : "cur ought to be in emptyBlocks";
                     succ = (BlockImpl) cur.getSuccessor();
                     if (succ == cur) {
                         // An infinite loop, making exit block unreachable
@@ -1041,22 +1089,22 @@ public class CFGBuilder {
         }
 
         /**
-         * Compute the set of empty regular basic blocks {@code empty}, starting at {@code start}
-         * and looking only backwards in the control flow graph. Furthermore, compute the
-         * predecessors of these empty blocks ( {@code predecessors}).
+         * Compute the set of empty regular basic blocks {@code emptyBlocks}, starting at {@code
+         * start} and looking only backwards in the control flow graph. Furthermore, compute the
+         * predecessors of these empty blocks ({@code predecessors}).
          *
          * @param start the starting point of the search (an empty, regular basic block)
-         * @param empty a set to be filled by this method with all empty basic blocks found
+         * @param emptyBlocks a set to be filled by this method with all empty basic blocks found
          *     (including {@code start}).
          * @param predecessors a set to be filled by this method with all predecessors
          */
         protected static void computeNeighborhoodOfEmptyBlockBackwards(
                 RegularBlockImpl start,
-                Set<RegularBlockImpl> empty,
+                Set<RegularBlockImpl> emptyBlocks,
                 Set<PredecessorHolder> predecessors) {
 
             RegularBlockImpl cur = start;
-            empty.add(cur);
+            emptyBlocks.add(cur);
             for (final Block p : cur.getPredecessors()) {
                 BlockImpl pred = (BlockImpl) p;
                 switch (pred.getType()) {
@@ -1076,8 +1124,9 @@ public class CFGBuilder {
                         RegularBlockImpl r = (RegularBlockImpl) pred;
                         if (r.isEmpty()) {
                             // recursively look backwards
-                            if (!empty.contains(r)) {
-                                computeNeighborhoodOfEmptyBlockBackwards(r, empty, predecessors);
+                            if (!emptyBlocks.contains(r)) {
+                                computeNeighborhoodOfEmptyBlockBackwards(
+                                        r, emptyBlocks, predecessors);
                             }
                         } else {
                             // add pred correctly to predecessor list
@@ -1255,7 +1304,7 @@ public class CFGBuilder {
 
             // missing exceptional edges
             Set<Tuple<ExceptionBlockImpl, Integer, TypeMirror>> missingExceptionalEdges =
-                    new HashSet<>();
+                    new LinkedHashSet<>();
 
             // create start block
             SpecialBlockImpl startBlock = new SpecialBlockImpl(SpecialBlockType.ENTRY);
@@ -1500,6 +1549,32 @@ public class CFGBuilder {
                 return "unbound label: " + label;
             }
             return nodeToString(nodeList.get(index));
+        }
+
+        /**
+         * Returns a verbose string representation of this, useful for debugging.
+         *
+         * @return a string representation of this
+         */
+        public String toStringDebug() {
+            StringJoiner result =
+                    new StringJoiner(
+                            String.format("%n  "),
+                            String.format("PhaseOneResult{%n  "),
+                            String.format("%n  }"));
+            result.add("treeLookupMap=" + treeLookupMap);
+            result.add("convertedTreeLookupMap=" + convertedTreeLookupMap);
+            result.add("unaryAssignNodeLookupMap=" + unaryAssignNodeLookupMap);
+            result.add("underlyingAST=" + underlyingAST);
+            result.add("bindings=" + bindings);
+            result.add("nodeList=" + extendedNodeCollectionToStringDebug(nodeList));
+            result.add("leaders=" + leaders);
+            result.add("returnNodes=" + Node.nodeCollectionToString(returnNodes));
+            result.add("regularExitLabel=" + regularExitLabel);
+            result.add("exceptionalExitLabel=" + exceptionalExitLabel);
+            result.add("declaredClasses=" + declaredClasses);
+            result.add("declaredLambdas=" + declaredLambdas);
+            return result.toString();
         }
     }
 
@@ -1849,7 +1924,7 @@ public class CFGBuilder {
         protected NodeWithExceptionsHolder extendWithNodeWithExceptions(
                 Node node, Set<TypeMirror> causes) {
             addToLookupMap(node);
-            Map<TypeMirror, Set<Label>> exceptions = new HashMap<>();
+            Map<TypeMirror, Set<Label>> exceptions = new LinkedHashMap<>();
             for (TypeMirror cause : causes) {
                 exceptions.put(cause, tryStack.possibleLabels(cause));
             }
@@ -1885,7 +1960,7 @@ public class CFGBuilder {
         protected NodeWithExceptionsHolder insertNodeWithExceptionsAfter(
                 Node node, Set<TypeMirror> causes, Node pred) {
             addToLookupMap(node);
-            Map<TypeMirror, Set<Label>> exceptions = new HashMap<>();
+            Map<TypeMirror, Set<Label>> exceptions = new LinkedHashMap<>();
             for (TypeMirror cause : causes) {
                 exceptions.put(cause, tryStack.possibleLabels(cause));
             }
