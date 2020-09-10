@@ -23,9 +23,19 @@ class KeyForStaticField {
         return map.get(key);
     }
 
-    public void m(KeyForStaticField other) {
+    public Integer getDefValue() {
+        @KeyFor("this.map") String defKey = STATIC_KEY;
+        return map.get(defKey);
+    }
+
+    public void main(KeyForStaticField other) {
         getValue(STATIC_KEY);
         this.getValue(STATIC_KEY);
         other.getValue(STATIC_KEY);
+
+        map.get(STATIC_KEY);
+
+        KeyForStaticField field = new KeyForStaticField();
+        field.getValue(KeyForStaticField.STATIC_KEY);
     }
 }

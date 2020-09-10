@@ -243,6 +243,7 @@ public abstract class CFAbstractTransfer<
             if (fixedInitialStore != null) {
                 return fixedInitialStore;
             } else {
+                System.out.println("CFAT initialStore 1");
                 return analysis.createEmptyStore(sequentialSemantics);
             }
         }
@@ -255,6 +256,7 @@ public abstract class CFAbstractTransfer<
                 // copy knowledge
                 info = analysis.createCopiedStore(fixedInitialStore);
             } else {
+                System.out.println("CFAT initialStore 2");
                 info = analysis.createEmptyStore(sequentialSemantics);
             }
 
